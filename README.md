@@ -1,5 +1,6 @@
 # React + Vite
 #I supervised this project
+This project uses hyperlegder besu as the block chain and Convex to store the data and AI to filter Questions whether it is academic or not.
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:
