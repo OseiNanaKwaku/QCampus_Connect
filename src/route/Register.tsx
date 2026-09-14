@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../convex/_generated/api';
 import { saveSessionToken } from '../lib/session';
 import { savePrivateKeyToIndexedDB } from '../utils/cryptoBridge';
+import { toErrorText } from '../lib/convexErrors';
 import ReCaptcha, { ReCaptchaRef } from '../components/ReCaptcha';
 import '../route_css/Register.css';
 
@@ -291,61 +292,60 @@ const Register = () => {
       recaptchaRef.current?.reset();
       setRecaptchaToken('');
 
-      // Convert the full error object into a searchable string
-      const rawError = `${err?.data || ''} ${err?.message || ''} ${typeof err?.toString === 'function' ? err.toString() : ''} ${JSON.stringify(err || '')}`;
+      // Use toErrorText to extract the clean, human-readable message from the Convex error
+      const cleanedText = toErrorText(err);
 
-      // 🛡️ Guard: Default fallback string
+      // Also build a raw fallback search string in case toErrorText returns empty
+      const rawError = cleanedText ||
+        `${err?.data || ''} ${err?.message || ''} ${typeof err?.toString === 'function' ? err.toString() : ''} ${JSON.stringify(err || '')}`.toLowerCase();
+
+      // 🛡️ Default fallback
       let clearMessage = "Registration failed. Please try again.";
 
-      // 🔎 1. Check for specific error flags passed from your database/logs
+      // 🔎 Match against known backend ConvexError messages (case-insensitive)
       if (
-        rawError.includes("Account already exists") ||
-        rawError.includes("This account already exists") ||
-        (rawError.toLowerCase().includes("account") && rawError.toLowerCase().includes("exist")) ||
-        (rawError.toLowerCase().includes("email") && rawError.toLowerCase().includes("password"))
+        rawError.includes("an account with this email address already exists") ||
+        rawError.includes("account already exists") ||
+        rawError.includes("this account already exists") ||
+        (rawError.includes("account") && rawError.includes("exist"))
       ) {
-        clearMessage = "This account already exists.";
+        clearMessage = "An account with this email address already exists.";
       } else if (
         rawError.includes("email address already exists") ||
-        rawError.includes("Email already exists") ||
-        rawError.toLowerCase().includes("email already exists")
+        rawError.includes("email already exists")
       ) {
-        clearMessage = "Email already exists.";
-      } else if (
-        rawError.includes("Password already exists") ||
-        rawError.includes("password already exists") ||
-        rawError.toLowerCase().includes("password already exists")
-      ) {
+        clearMessage = "An account with this email address already exists.";
+      } else if (rawError.includes("password already exists")) {
         clearMessage = "Password already exists.";
       } else if (
-        rawError.toLowerCase().includes("id number is already registered") ||
-        rawError.toLowerCase().includes("already registered with another account") ||
-        rawError.toLowerCase().includes("already registered")
+        rawError.includes("id number is already registered") ||
+        rawError.includes("already registered with another account") ||
+        rawError.includes("already registered")
       ) {
         clearMessage = "This ID number is already registered with another account.";
-      } else if (rawError.toLowerCase().includes("rank")) {
+      } else if (rawError.includes("rank")) {
         clearMessage = "Select a valid academic rank.";
-      } else if (rawError.includes("reCAPTCHA") || rawError.toLowerCase().includes("captcha")) {
+      } else if (rawError.includes("recaptcha") || rawError.includes("captcha")) {
         clearMessage = "reCAPTCHA verification failed. Please complete the check again.";
-      } else if (rawError.toLowerCase().includes("network") || rawError.toLowerCase().includes("failed to fetch")) {
+      } else if (rawError.includes("network") || rawError.includes("failed to fetch")) {
         clearMessage = "Unable to connect. Please check your internet connection.";
+      } else if (cleanedText) {
+        // Show the actual backend message directly if none of the above matched
+        clearMessage = cleanedText.charAt(0).toUpperCase() + cleanedText.slice(1);
       }
 
-      // 📝 2. Assign the cleaned text to your UI error display state
+      // 📝 Assign field-level and form-level errors
       const nextErrors: RegisterErrorsRecord = { form: clearMessage };
-      if (clearMessage === "This account already exists.") {
-        nextErrors.email = "This account already exists.";
+      if (clearMessage.toLowerCase().includes("email") || clearMessage.toLowerCase().includes("account already exists")) {
+        nextErrors.email = clearMessage;
         document.getElementById("email")?.scrollIntoView({ behavior: "smooth", block: "center" });
-      } else if (clearMessage === "Email already exists.") {
-        nextErrors.email = "Email already exists.";
-        document.getElementById("email")?.scrollIntoView({ behavior: "smooth", block: "center" });
-      } else if (clearMessage === "Password already exists.") {
-        nextErrors.password = "Password already exists.";
+      } else if (clearMessage.toLowerCase().includes("password already exists")) {
+        nextErrors.password = clearMessage;
         document.getElementById("password")?.scrollIntoView({ behavior: "smooth", block: "center" });
-      } else if (clearMessage === "This ID number is already registered with another account.") {
-        nextErrors.idNumber = "This ID number is already registered with another account.";
+      } else if (clearMessage.toLowerCase().includes("id number") || clearMessage.toLowerCase().includes("already registered")) {
+        nextErrors.idNumber = clearMessage;
         document.getElementById("id_number")?.scrollIntoView({ behavior: "smooth", block: "center" });
-      } else if (clearMessage.includes("reCAPTCHA")) {
+      } else if (clearMessage.toLowerCase().includes("recaptcha") || clearMessage.toLowerCase().includes("captcha")) {
         nextErrors.recaptcha = clearMessage;
       }
       setErrorsRecord(nextErrors);
