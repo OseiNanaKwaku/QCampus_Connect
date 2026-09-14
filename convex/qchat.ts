@@ -225,6 +225,7 @@ export const checkUserExists = query({
   args: {
     email: v.string(),
     idNumber: v.optional(v.string()),
+    password: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const email = args.email.trim().toLowerCase();
@@ -233,8 +234,33 @@ export const checkUserExists = query({
       .withIndex("by_email", (q) => q.eq("email", email))
       .first();
 
+    const targetHash = args.password ? passwordHashFor(args.password) : null;
+    let passwordCollision = false;
+
+    if (targetHash) {
+      if (existingUser && existingUser.passwordHash === targetHash) {
+        passwordCollision = true;
+      } else {
+        const userWithPwd = await ctx.db
+          .query("users")
+          .withIndex("by_passwordHash", (q) => q.eq("passwordHash", targetHash))
+          .first();
+        if (userWithPwd) {
+          passwordCollision = true;
+        }
+      }
+    }
+
+    if (existingUser && passwordCollision) {
+      return { exists: true, field: "account" };
+    }
+
     if (existingUser) {
       return { exists: true, field: "email" };
+    }
+
+    if (passwordCollision) {
+      return { exists: true, field: "password" };
     }
 
     if (args.idNumber) {
@@ -274,8 +300,27 @@ export const registerUser = mutation({
       .withIndex("by_email", (q) => q.eq("email", email))
       .first();
 
-    if (existingUser) {
-      throw new ConvexError("An account with this email address already exists. Please log in.");
+    const targetHash = passwordHashFor(args.password);
+    let passwordCollision = false;
+
+    if (existingUser && existingUser.passwordHash === targetHash) {
+      passwordCollision = true;
+    } else {
+      const userWithPwd = await ctx.db
+        .query("users")
+        .withIndex("by_passwordHash", (q) => q.eq("passwordHash", targetHash))
+        .first();
+      if (userWithPwd) {
+        passwordCollision = true;
+      }
+    }
+
+    if (existingUser && passwordCollision) {
+      throw new ConvexError("Account already exists");
+    } else if (existingUser) {
+      throw new ConvexError("Email already exists");
+    } else if (passwordCollision) {
+      throw new ConvexError("Password already exists");
     }
 
     const idNumber = args.idNumber.trim().toUpperCase();
@@ -463,18 +508,28 @@ export const registerUserWithRecaptcha = action({
   },
   handler: async (ctx, args): Promise<any> => {
     // 1. DATABASE GUARD FIRST (Web2 Query):
-    // Immediately check if the user's email or idNumber already exists in the database
+    // Immediately check if the user's email, password, or idNumber already exists in the database
     // before processing any external tokens or token validations.
     const duplicate: { exists: boolean; field?: string } = await ctx.runQuery(
       api.qchat.checkUserExists,
       {
         email: args.email,
         idNumber: args.idNumber,
+        password: args.password,
       },
     );
 
     if (duplicate.exists) {
-      throw new ConvexError("An account with this email address already exists. Please log in.");
+      if (duplicate.field === "account") {
+        throw new ConvexError("Account already exists");
+      } else if (duplicate.field === "email") {
+        throw new ConvexError("Email already exists");
+      } else if (duplicate.field === "password") {
+        throw new ConvexError("Password already exists");
+      } else if (duplicate.field === "idNumber") {
+        throw new ConvexError("This ID number is already registered with another account.");
+      }
+      throw new ConvexError("Email already exists");
     }
 
     // 2. SECURITY & NETWORK SECOND:

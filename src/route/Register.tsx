@@ -2,7 +2,6 @@ import { useState, useRef } from 'react';
 import { useAction, useMutation, useQuery } from 'convex/react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../convex/_generated/api';
-import { isNetworkError, toErrorText, getConvexErrorCode } from '../lib/convexErrors';
 import { saveSessionToken } from '../lib/session';
 import { savePrivateKeyToIndexedDB, relayHashToBesu } from '../utils/cryptoBridge';
 import ReCaptcha, { ReCaptchaRef } from '../components/ReCaptcha';
@@ -208,119 +207,6 @@ const Register = () => {
     return null;
   };
 
-  /** Tier 2 — map database errors to the correct field using keyword checks. */
-  const applyBackendError = (error: unknown) => {
-    if (isNetworkError(error)) {
-      setErrorsRecord({ form: 'Unable to connect. Please check your internet connection.' });
-      return;
-    }
-
-    const errorCode = getConvexErrorCode(error);
-    const errorText = toErrorText(error);
-
-    // 1. Email already exists
-    if (
-      errorCode === 'EMAIL_ALREADY_EXISTS' ||
-      errorText.includes('already exists') ||
-      (errorText.includes('email') && errorText.includes('exist')) ||
-      errorText.includes('account with this email')
-    ) {
-      setErrorsRecord({
-        email: 'An account with this email address already exists. Please log in.',
-        form: 'An account with this email address already exists. Please log in.',
-      });
-      document.getElementById('email')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      return;
-    }
-
-    // 2. ID number already exists
-    if (
-      errorCode === 'ID_ALREADY_EXISTS' ||
-      errorText.includes('id number is already registered') ||
-      errorText.includes('index number') ||
-      errorText.includes('already registered with another account')
-    ) {
-      setErrorsRecord({
-        idNumber: 'This ID number is already registered with another account.',
-        form: 'This ID number is already registered with another account.',
-      });
-      document.getElementById('id_number')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      return;
-    }
-
-    // 3. Academic rank
-    if (errorText.includes('rank')) {
-      setErrorsRecord({ form: 'Select a valid academic rank.' });
-      return;
-    }
-
-    // 4. Password requirements
-    if (
-      errorCode === 'PASSWORD_TOO_SHORT' ||
-      errorText.includes('password must be at least') ||
-      errorText.includes('credential') ||
-      errorText.includes('password')
-    ) {
-      setErrorsRecord({
-        password: 'Password does not meet requirements. Please choose a different one.',
-        form: 'Password does not meet requirements. Please choose a different one.',
-      });
-      return;
-    }
-
-    // 5. reCAPTCHA failure (specifically check for recaptcha failure, NOT generic 'captcha' substring)
-    if (
-      errorCode === 'RECAPTCHA_FAILED' ||
-      errorCode === 'RECAPTCHA_REQUIRED' ||
-      errorText.includes('recaptcha verification failed') ||
-      errorText.includes('recaptcha challenge') ||
-      errorText.includes('recaptcha token is required')
-    ) {
-      setErrorsRecord({
-        recaptcha: 'reCAPTCHA verification failed. Please complete the check again.',
-        form: 'reCAPTCHA verification failed. Please complete the check again.',
-      });
-      return;
-    }
-
-    // 6. If all the noise was stripped and we're left with nothing useful, check the raw
-    //    ConvexError data string one more time (covers cases where the prefix stripping
-    //    consumed the whole message).
-    if (!errorText || errorText === 'server error') {
-      const convexData =
-        (error as { data?: unknown })?.data;
-      const rawData =
-        typeof convexData === 'string'
-          ? convexData.toLowerCase()
-          : '';
-
-      if (rawData.includes('already exists') || rawData.includes('account with this email')) {
-        setErrorsRecord({
-          email: 'An account with this email address already exists. Try logging in instead.',
-          form: 'An account with this email address already exists. Try logging in instead.',
-        });
-        document.getElementById('email')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return;
-      }
-
-      if (rawData.includes('already registered')) {
-        setErrorsRecord({
-          idNumber: 'This ID number is already registered with another account.',
-          form: 'This ID number is already registered with another account.',
-        });
-        document.getElementById('id_number')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return;
-      }
-    }
-
-    // 7. Generic/fallback
-    const cleanMsg =
-      errorText && errorText.length < 150 && !errorText.includes('{') && errorText !== 'server error'
-        ? errorText.charAt(0).toUpperCase() + errorText.slice(1)
-        : 'Something went wrong while creating your account. Please double-check your details and try again.';
-
-    setErrorsRecord({ form: cleanMsg });
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -394,10 +280,70 @@ const Register = () => {
       saveSessionToken(user.sessionToken);
       localStorage.setItem("qchat_active_user_id", user._id);
       navigate('/messages');
-    } catch (error) {
+    } catch (err: any) {
       recaptchaRef.current?.reset();
       setRecaptchaToken('');
-      applyBackendError(error);
+
+      // Convert the full error object into a searchable string
+      const rawError = `${err?.data || ''} ${err?.message || ''} ${typeof err?.toString === 'function' ? err.toString() : ''} ${JSON.stringify(err || '')}`;
+
+      // 🛡️ Guard: Default fallback string
+      let clearMessage = "Registration failed. Please try again.";
+
+      // 🔎 1. Check for specific error flags passed from your database/logs
+      if (
+        rawError.includes("Account already exists") ||
+        rawError.includes("This account already exists") ||
+        (rawError.toLowerCase().includes("account") && rawError.toLowerCase().includes("exist")) ||
+        (rawError.toLowerCase().includes("email") && rawError.toLowerCase().includes("password"))
+      ) {
+        clearMessage = "This account already exists.";
+      } else if (
+        rawError.includes("email address already exists") ||
+        rawError.includes("Email already exists") ||
+        rawError.toLowerCase().includes("email already exists")
+      ) {
+        clearMessage = "Email already exists.";
+      } else if (
+        rawError.includes("Password already exists") ||
+        rawError.includes("password already exists") ||
+        rawError.toLowerCase().includes("password already exists")
+      ) {
+        clearMessage = "Password already exists.";
+      } else if (
+        rawError.toLowerCase().includes("id number is already registered") ||
+        rawError.toLowerCase().includes("already registered with another account") ||
+        rawError.toLowerCase().includes("already registered")
+      ) {
+        clearMessage = "This ID number is already registered with another account.";
+      } else if (rawError.toLowerCase().includes("rank")) {
+        clearMessage = "Select a valid academic rank.";
+      } else if (rawError.includes("reCAPTCHA") || rawError.toLowerCase().includes("captcha")) {
+        clearMessage = "reCAPTCHA verification failed. Please complete the check again.";
+      } else if (rawError.toLowerCase().includes("network") || rawError.toLowerCase().includes("failed to fetch")) {
+        clearMessage = "Unable to connect. Please check your internet connection.";
+      }
+
+      // 📝 2. Assign the cleaned text to your UI error display state
+      const nextErrors: RegisterErrorsRecord = { form: clearMessage };
+      if (clearMessage === "This account already exists.") {
+        nextErrors.email = "This account already exists.";
+        document.getElementById("email")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else if (clearMessage === "Email already exists.") {
+        nextErrors.email = "Email already exists.";
+        document.getElementById("email")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else if (clearMessage === "Password already exists.") {
+        nextErrors.password = "Password already exists.";
+        document.getElementById("password")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else if (clearMessage === "This ID number is already registered with another account.") {
+        nextErrors.idNumber = "This ID number is already registered with another account.";
+        document.getElementById("id_number")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else if (clearMessage.includes("reCAPTCHA")) {
+        nextErrors.recaptcha = clearMessage;
+      }
+      setErrorsRecord(nextErrors);
+
+      console.error("Cleaned Error Output:", clearMessage);
     } finally {
       setIsSubmitting(false);
     }

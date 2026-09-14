@@ -110,11 +110,21 @@ export const registerUserWithRecaptcha = action({
       {
         email: args.email,
         idNumber: args.idNumber,
+        password: args.password,
       },
     );
 
     if (duplicate.exists) {
-      throw new ConvexError("An account with this email address already exists. Please log in.");
+      if (duplicate.field === "account") {
+        throw new ConvexError("Account already exists");
+      } else if (duplicate.field === "email") {
+        throw new ConvexError("Email already exists");
+      } else if (duplicate.field === "password") {
+        throw new ConvexError("Password already exists");
+      } else if (duplicate.field === "idNumber") {
+        throw new ConvexError("This ID number is already registered with another account.");
+      }
+      throw new ConvexError("Email already exists");
     }
 
     // 2. SECURITY & NETWORK SECOND:

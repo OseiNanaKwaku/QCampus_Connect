@@ -48,6 +48,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_email", ["email"])
+    .index("by_passwordHash", ["passwordHash"])
     .index("by_sessionToken", ["sessionToken"])
     .index("by_school", ["school"])
     .index("by_department", ["departmentId"])

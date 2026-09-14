@@ -95,7 +95,12 @@ export function toErrorText(error: unknown): string {
     text = text.slice(0, newlineIndex).trim();
   }
 
-  return text.toLowerCase();
+  const cleaned = text.trim().toLowerCase();
+  if (cleaned.startsWith('called by client') || cleaned === 'called by client') {
+    return '';
+  }
+
+  return cleaned;
 }
 
 export function isNetworkError(error: unknown): boolean {
