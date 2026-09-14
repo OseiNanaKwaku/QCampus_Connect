@@ -1,26 +1,13 @@
 import { ethers } from "ethers";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../convex/_generated/api";
 
-// Environment variables configuration with fallbacks
-const BLOCKCHAIN_RPC_URL =
-  (import.meta.env?.VITE_BESU_RPC_URL as string) ||
-  (import.meta.env?.VITE_BLOCKCHAIN_RPC_URL as string) ||
-  "http://127.0.0.1:8545"; // Default local Besu/Hardhat network port
+const CONVEX_URL =
+  (import.meta.env?.VITE_CONVEX_URL as string) ||
+  "https://rightful-orca-265.convex.cloud";
 
-const CONTRACT_ADDRESS =
-  (import.meta.env?.VITE_CONTRACT_ADDRESS as string) ||
-  "0xa50a51c09a5c451C52BB714527E1974b686D8e77";
-
-const ADMIN_PRIVATE_KEY =
-  (import.meta.env?.VITE_SYSTEM_PRIVATE_KEY as string) ||
-  (import.meta.env?.VITE_ADMIN_PRIVATE_KEY as string) ||
-  "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63";
-
-const CONTRACT_ABI = [
-  "function recordHash(string memory messageId, bytes32 messageHash, address sender, address receiver) external",
-  "function verifyHash(string memory messageId) external view returns (bytes32)",
-  "function verifyUser(address userAddress, string memory role) external",
-  "function getUserRole(address userAddress) external view returns (string memory)",
-];
+const convexClient = new ConvexHttpClient(CONVEX_URL);
+const convexApi = api as any;
 
 /**
  * Deterministically derives a 20-byte Ethereum address from a Convex ID.
@@ -181,44 +168,21 @@ export async function relayHashToBesu(
   }
 ): Promise<string> {
   try {
-    // 1. Initialize Ethers provider (connecting to local or tunnel RPC URL)
-    const provider = new ethers.JsonRpcProvider(BLOCKCHAIN_RPC_URL);
+    const result: any = await convexClient.action(convexApi.blockchainActions.relayHash, {
+      actionType,
+      identifier,
+      rawTextPayload,
+      senderId: extraData?.senderId,
+      receiverId: extraData?.receiverId,
+      role: extraData?.role,
+    });
 
-    // 2. Instantiate the admin wallet signer
-    const adminWallet = new ethers.Wallet(ADMIN_PRIVATE_KEY, provider);
-
-    // 3. Connect to the smart contract
-    const contract = new ethers.Contract(
-      CONTRACT_ADDRESS,
-      CONTRACT_ABI,
-      adminWallet
-    );
-
-    // 4. Compute SHA-256 hash of the payload in bytes32 format
-    const contentHash = await computeSHA256Bytes32(rawTextPayload);
-
-    // 5. Execute transaction based on action type with { gasPrice: 0 }
-    let txResponse;
-    if (actionType === "APPROVE_USER") {
-      const userAddress = getPseudoAddress(identifier);
-      const role = extraData?.role || "student";
-      txResponse = await contract.verifyUser(userAddress, role, {
-        gasPrice: 0n, // zero-gas dev network
-      });
-    } else if (actionType === "RECORD_MESSAGE") {
-      const senderAddr = getPseudoAddress(extraData?.senderId || "admin");
-      const receiverAddr = getPseudoAddress(extraData?.receiverId || "public");
-
-      txResponse = await contract.recordHash(identifier, contentHash, senderAddr, receiverAddr, {
-        gasPrice: 0n, // zero-gas dev network
-      });
-    } else {
-      throw new Error(`Unsupported action type: ${actionType}`);
+    if (result && !result.success) {
+      console.warn("[Blockchain Sync] Relay returned non-critical status:", result.error);
+      return result.txHash || "";
     }
 
-    // Wait for the transaction to be mined
-    const receipt = await txResponse.wait();
-    return receipt.hash || txResponse.hash;
+    return result?.txHash || "";
   } catch (error) {
     console.error("Blockchain relay error:", error);
     throw error;

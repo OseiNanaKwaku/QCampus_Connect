@@ -9,6 +9,7 @@
  */
 
 import type * as admin from "../admin.js";
+import type * as blockchainActions from "../blockchainActions.js";
 import type * as qchat from "../qchat.js";
 import type * as recaptcha from "../recaptcha.js";
 import type * as seed from "../seed.js";
@@ -22,6 +23,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
+  blockchainActions: typeof blockchainActions;
   qchat: typeof qchat;
   recaptcha: typeof recaptcha;
   seed: typeof seed;

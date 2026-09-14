@@ -3,7 +3,7 @@ import { useAction, useMutation, useQuery } from 'convex/react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../convex/_generated/api';
 import { saveSessionToken } from '../lib/session';
-import { savePrivateKeyToIndexedDB, relayHashToBesu } from '../utils/cryptoBridge';
+import { savePrivateKeyToIndexedDB } from '../utils/cryptoBridge';
 import ReCaptcha, { ReCaptchaRef } from '../components/ReCaptcha';
 import '../route_css/Register.css';
 
@@ -69,6 +69,7 @@ const Register = () => {
 
   const registerUser = useMutation(convexApi.qchat.registerUser);
   const registerUserWithRecaptcha = useAction(convexApi.qchat.registerUserWithRecaptcha);
+  const approveUserOnBlockchain = useAction(convexApi.blockchainActions.approveUser);
   const departments = useQuery(convexApi.qchat.getDepartments);
 
   // Close dropdown when clicking outside (commented out as dropdown is disabled)
@@ -272,10 +273,16 @@ const Register = () => {
       // 4. Save to local vault in IndexedDB indexed by user._id for persistent user-isolated storage
       await savePrivateKeyToIndexedDB(user._id, keyPair.privateKey);
 
-      // Asynchronously trigger Besu network approval trigger
-      relayHashToBesu("APPROVE_USER", user._id, `${firstName} ${lastName}`, { role })
-        .then((txHash) => console.log(`[Blockchain Sync] User approved on Besu. Tx: ${txHash}`))
-        .catch((err) => console.error("[Blockchain Sync] Failed to approve user on Besu:", err));
+      // Asynchronously trigger Besu network approval via Convex Action (safe against browser CORS)
+      approveUserOnBlockchain({ userId: user._id, role, name: `${firstName} ${lastName}` })
+        .then((res: any) => {
+          if (res?.success) {
+            console.log(`[Blockchain Sync] User approved on Besu. Tx: ${res.txHash}`);
+          } else {
+            console.warn("[Blockchain Sync] Besu approval notice:", res?.error);
+          }
+        })
+        .catch((err: any) => console.error("[Blockchain Sync] Failed to approve user on Besu:", err));
 
       saveSessionToken(user.sessionToken);
       localStorage.setItem("qchat_active_user_id", user._id);
