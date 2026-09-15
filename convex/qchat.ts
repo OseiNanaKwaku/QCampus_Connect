@@ -1600,7 +1600,38 @@ export const submitAcademicVerification = mutation({
       updatedAt: now,
     });
 
-    return { ok: true, evidenceUrl };
+    // Return the profile hash payload so the frontend can anchor it to blockchain
+    const profileHashPayload = `${currentUser._id}|${args.idNumber || currentUser.idNumber || ""}|${currentUser.email}|${args.school}|${currentUser.role}`;
+    return { ok: true, evidenceUrl, profileHashPayload, userId: currentUser._id };
+  },
+});
+
+/**
+ * Persists a blockchain transaction hash from a profile hash anchor back to
+ * the most recent verification request for the user. Called by the frontend
+ * after a successful Besu recordProfileHash action.
+ */
+export const storeProfileHashTx = mutation({
+  args: {
+    sessionToken: v.string(),
+    txHash: v.string(),
+    profileHash: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const currentUser = await requireUser(ctx, args.sessionToken);
+    // Find the most recent pending verification request for this user
+    const request = await ctx.db
+      .query("verificationRequests")
+      .withIndex("by_userId", (q) => q.eq("userId", currentUser._id))
+      .order("desc")
+      .first();
+    if (!request) return { ok: false, reason: "no pending request" };
+    await ctx.db.patch(request._id, {
+      profileHashTxHash: args.txHash,
+      ...(args.profileHash ? { profileHash: args.profileHash } : {}),
+    });
+    console.log(`✅ [Convex] Profile hash tx stored: ${args.txHash} for request ${request._id}`);
+    return { ok: true };
   },
 });
 

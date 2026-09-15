@@ -2,6 +2,18 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { ethers } from "ethers";
+
+/**
+ * Derives a deterministic 20-byte Ethereum pseudo-address from a Convex document ID.
+ * This matches the formula used in blockchainActions.ts so the address is consistent
+ * across the entire system.
+ */
+function getPseudoAddress(id: string): string {
+  if (!id) return ethers.ZeroAddress;
+  const hash = ethers.keccak256(ethers.toUtf8Bytes(id));
+  return "0x" + hash.substring(26);
+}
 
 const passwordHashFor = (password: string) => {
   let hash = 2166136261;
@@ -91,6 +103,7 @@ export const reviewVerificationRequest = mutation({
     sessionToken: v.string(),
     requestId: v.id("verificationRequests"),
     status: v.union(v.literal("approved"), v.literal("rejected")),
+    approvalTxHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.sessionToken);
@@ -99,14 +112,30 @@ export const reviewVerificationRequest = mutation({
 
     const now = Date.now();
     const approved = args.status === "approved";
-    await ctx.db.patch(request._id, { status: args.status, approved, reviewedAt: now });
+
+    // Store the blockchain approval tx hash if provided
+    await ctx.db.patch(request._id, {
+      status: args.status,
+      approved,
+      reviewedAt: now,
+      ...(args.approvalTxHash ? { approvalTxHash: args.approvalTxHash } : {}),
+    });
+
+    // When approving: write the deterministic wallet address into the user record
+    // so it is visible in the admin search panel and never needs a fake fallback
+    const walletPatch = approved
+      ? { walletAddress: getPseudoAddress(request.userId) }
+      : {};
+
     await ctx.db.patch(request.userId, {
       verificationStatus: approved ? "approved" : "unverified",
       approved,
       updatedAt: now,
+      ...walletPatch,
     });
 
-    return { ok: true };
+    // Return user id so the admin frontend can trigger the blockchain approval action
+    return { ok: true, userId: request.userId, approved };
   },
 });
 
@@ -180,7 +209,9 @@ export const lookupUserByIdentifier = query({
       indexNumber: user.indexNumber ?? (user.role === "student" ? user.idNumber : undefined),
       staffId: user.staffId ?? (user.role === "lecturer" ? user.idNumber : undefined),
       idNumber: user.idNumber,
-      walletAddress: user.walletAddress ?? `0xf789Beaa${user._id.slice(-8)}D7550a05`,
+      // Use the real deterministic pseudo-address derived from the user's Convex ID
+      // (same keccak256 formula as blockchainActions.ts)
+      walletAddress: user.walletAddress || getPseudoAddress(user._id),
       verificationStatus,
       approved: user.approved === true || verificationStatus === "approved",
       avatarUrl: user.avatarUrl ?? "",
@@ -211,8 +242,13 @@ export const getUserMessages = query({
       .take(100);
 
     return messages.map((msg) => {
-      const txHash = msg.blockchainTxHash || `0x5c16c49d32067cc9f506a8eb2e94e76d${msg._id.slice(-8)}`;
-      const isoDate = new Date(msg.createdAt + 7 * 60 * 1000).toISOString().replace("T", " ").slice(0, 19);
+      // Only use real blockchain data — never fabricate hashes or verification status
+      const realTxHash = msg.blockchainTxHash || null;
+      const isBlockchainVerified = !!realTxHash;
+      // Blockchain timestamp is only available when the tx was actually recorded
+      const blockchainTimestamp = isBlockchainVerified
+        ? new Date(msg.createdAt).toISOString().replace("T", " ").slice(0, 19) + " GMT"
+        : null;
       return {
         _id: msg._id,
         text: msg.text,
@@ -221,13 +257,15 @@ export const getUserMessages = query({
         attachmentName: msg.attachmentName,
         attachmentType: msg.attachmentType,
         attachmentSize: msg.attachmentSize,
-        blockchainTxHash: txHash,
-        blockchainVerified: true,
-        blockchainTimestamp: `${isoDate} GMT`,
-        blockchainBlock: 148621 + Math.floor((msg.createdAt % 100000) / 100),
-        storedHash: `0xe3b0c44298fc1c149afbf4c8996fb924${msg._id.slice(-8)}`,
-        hashMatches: true,
-        senderMatches: true,
+        // Real values only — null when message was never anchored to Besu
+        blockchainTxHash: realTxHash,
+        blockchainVerified: isBlockchainVerified,
+        blockchainTimestamp: blockchainTimestamp,
+        blockchainBlock: null,
+        storedHash: null,
+        // hashMatches is only meaningful when the message IS on-chain
+        hashMatches: isBlockchainVerified,
+        senderMatches: isBlockchainVerified,
       };
     });
   },
@@ -271,15 +309,13 @@ export const sendAuditReportToUser = mutation({
       room = (await ctx.db.get(roomId))!;
     }
 
-    const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("")}`;
-
     const messageId = await ctx.db.insert("messages", {
       roomId: room._id,
       senderId: args.userId,
       text: args.reportText,
       readBy: [],
       createdAt: now,
-      blockchainTxHash: txHash,
+      // blockchainTxHash intentionally omitted — real hash set by blockchain anchor action
     });
 
     await ctx.db.patch(room._id, {

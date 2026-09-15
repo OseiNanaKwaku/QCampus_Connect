@@ -206,5 +206,10 @@ export default defineSchema({
     status: v.union(v.literal("pending"), v.literal("approved"), v.literal("rejected")),
     submittedAt: v.number(),
     reviewedAt: v.optional(v.number()),
+    // Blockchain anchoring: hash of profile data anchored at submission time
+    profileHash: v.optional(v.string()),
+    profileHashTxHash: v.optional(v.string()),
+    // Blockchain anchoring: tx hash recorded when admin approves
+    approvalTxHash: v.optional(v.string()),
   }).index("by_userId", ["userId"]),
 });

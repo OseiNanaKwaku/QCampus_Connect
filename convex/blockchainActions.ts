@@ -181,3 +181,57 @@ export const relayHash = action({
     }
   },
 });
+
+/**
+ * Records a profile hash for a verification submission onto Besu.
+ * Called when a user submits their verification request so the data is
+ * cryptographically anchored before the admin reviews it.
+ */
+export const recordProfileHash = action({
+  args: {
+    userId: v.string(),
+    idNumber: v.string(),
+    email: v.string(),
+    school: v.string(),
+    role: v.string(),
+    requestId: v.optional(v.string()),
+  },
+  handler: async (_ctx, args) => {
+    try {
+      const { contract } = getBlockchainConnection();
+
+      // Build a deterministic payload string from the user's profile fields
+      const payload = `${args.userId}|${args.idNumber}|${args.email}|${args.school}|${args.role}`;
+      const profileHash = computeSHA256Bytes32(payload);
+      const userAddress = getPseudoAddress(args.userId);
+
+      console.log(`⛓️  [Blockchain] Anchoring profile hash for user ${args.userId}`);
+      console.log(`   📋 Profile payload: ${payload}`);
+      console.log(`   🔑 SHA-256 Hash: ${profileHash}`);
+      console.log(`   📬 Pseudo-address: ${userAddress}`);
+
+      const messageId = args.requestId || `profile:${args.userId}`;
+      const tx = await contract.recordHash(
+        messageId,
+        profileHash,
+        userAddress,
+        ethers.ZeroAddress,
+        { gasPrice: 0n },
+      );
+
+      const receipt = await tx.wait();
+      const txHash = receipt?.hash || tx.hash;
+
+      console.log(`✅ [Blockchain] Profile hash anchored to Besu. Tx: ${txHash}`);
+      return { success: true, txHash, profileHash };
+    } catch (error: any) {
+      console.error("[Blockchain] Failed to anchor profile hash:", error?.message || error);
+      return {
+        success: false,
+        error: error?.message || "Failed to anchor profile hash to Besu blockchain",
+        txHash: null,
+        profileHash: null,
+      };
+    }
+  },
+});

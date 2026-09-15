@@ -274,16 +274,29 @@ const Register = () => {
       // 4. Save to local vault in IndexedDB indexed by user._id for persistent user-isolated storage
       await savePrivateKeyToIndexedDB(user._id, keyPair.privateKey);
 
-      // Asynchronously trigger Besu network approval via Convex Action (safe against browser CORS)
+      // 5. Asynchronously anchor user registration to Besu blockchain via Convex Action.
+      //    This runs server-side (no CORS), so browser CORS restrictions don't apply.
+      //    We log clearly to the console for easy identification of blockchain steps.
+      console.log(`🔐 [Registration] ✅ User created in Convex DB`);
+      console.log(`   👤 User ID:   ${user._id}`);
+      console.log(`   📧 Email:     ${email}`);
+      console.log(`   🏛️  Role:      ${role}`);
+      console.log(`⛓️  [Blockchain] Sending approval to Hyperledger Besu (via Convex action)...`);
+
       approveUserOnBlockchain({ userId: user._id, role, name: `${firstName} ${lastName}` })
         .then((res: any) => {
           if (res?.success) {
-            console.log(`[Blockchain Sync] User approved on Besu. Tx: ${res.txHash}`);
+            console.log(`✅ [Blockchain] Registration approved on Besu!`);
+            console.log(`   🔗 Tx Hash: ${res.txHash}`);
           } else {
-            console.warn("[Blockchain Sync] Besu approval notice:", res?.error);
+            console.warn(`⚠️  [Blockchain] Besu approval notice (non-fatal): ${res?.error}`);
+            console.info(`   ℹ️  User is registered in Convex DB. Blockchain sync will retry on next login.`);
           }
         })
-        .catch((err: any) => console.error("[Blockchain Sync] Failed to approve user on Besu:", err));
+        .catch((err: any) => {
+          console.error(`❌ [Blockchain] Failed to approve user on Besu (non-fatal):`, err?.message || err);
+          console.info(`   ℹ️  User is registered in Convex DB. Blockchain sync will retry.`);
+        });
 
       saveSessionToken(user.sessionToken);
       localStorage.setItem("qchat_active_user_id", user._id);
