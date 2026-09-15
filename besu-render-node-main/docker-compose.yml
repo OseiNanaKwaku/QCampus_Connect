@@ -6,6 +6,7 @@ services:
     volumes:
       - ./genesis.json:/opt/besu/genesis.json:ro,z
       - ./keys/validator.key:/opt/besu/keys/validator.key:ro,z
+      - ./static-nodes.json:/var/lib/besu/data/static-nodes.json:ro,z
       - validator-data:/var/lib/besu/data
     ports:
       - "8545:8545"
@@ -15,9 +16,8 @@ services:
       - --genesis-file=/opt/besu/genesis.json
       - --data-path=/var/lib/besu/data
       - --node-private-key-file=/opt/besu/keys/validator.key
-      - --bootnodes=enode://c935d0691d0e6f197a803ad253bf8615774ba571c3d2f0b96ccc6d516f0373cac7b0c0b3dd7ecd6c134257b054b9e51aea7b18fd103cd2c884adf1832fd94e8c@peer:30303
       - --discovery-enabled=false
-      - --p2p-host=validator
+      - --p2p-host=172.28.0.10
       - --p2p-port=30303
       - --sync-mode=FULL
       - --sync-min-peers=1
@@ -29,7 +29,8 @@ services:
       - --rpc-http-cors-origins=*
       - --host-allowlist=*
     networks:
-      - besu-net
+      besu-net:
+        ipv4_address: 172.28.0.10
 
   peer:
     image: hyperledger/besu:24.12.2
@@ -38,6 +39,7 @@ services:
     volumes:
       - ./genesis.json:/opt/besu/genesis.json:ro,z
       - ./keys/peer.key:/opt/besu/keys/peer.key:ro,z
+      - ./static-nodes.json:/var/lib/besu/data/static-nodes.json:ro,z
       - peer-data:/var/lib/besu/data
     environment:
       - BESU_LOGGING=INFO
@@ -45,16 +47,16 @@ services:
       - --genesis-file=/opt/besu/genesis.json
       - --data-path=/var/lib/besu/data
       - --node-private-key-file=/opt/besu/keys/peer.key
-      - --bootnodes=enode://09b02f8a5fddd222ade4ea4528faefc399623af3f736be3c44f03e2df22fb792f3931a4d9573d333ca74343305762a753388c3422a86d98b713fc91c1ea04842@validator:30303
       - --discovery-enabled=false
-      - --p2p-host=peer
+      - --p2p-host=172.28.0.11
       - --p2p-port=30303
       - --sync-mode=FULL
       - --sync-min-peers=1
       - --min-gas-price=0
       - --rpc-http-enabled=false
     networks:
-      - besu-net
+      besu-net:
+        ipv4_address: 172.28.0.11
 
 volumes:
   validator-data:
@@ -63,3 +65,6 @@ volumes:
 networks:
   besu-net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

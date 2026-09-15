@@ -118,8 +118,10 @@ export const approveUser = action({
 
       const tx = await contract.verifyUser(userAddress, userRole, txOverrides);
 
-      const receipt = await tx.wait();
-      const txHash = receipt?.hash || tx.hash;
+      // const receipt = await tx.wait();
+      // const txHash = receipt?.hash || tx.hash;
+      
+      const txHash=tx?.hash;
       console.log(`[Blockchain Action] User successfully verified on Besu. Tx: ${txHash}`);
       return { success: true, txHash };
     } catch (error: any) {
