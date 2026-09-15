@@ -13,9 +13,7 @@
       "blockperiodseconds": 2,
       "epochlength": 30000,
       "requesttimeoutseconds": 4,
-      "validators": [
-        "0xFE3B557E8Fb62b89F4916B721be55cEb828dBd73"
-      ]
+      "validators": ["0xFE3B557E8Fb62b89F4916B721be55cEb828dBd73"]
     }
   },
   "nonce": "0x0000000000000042",
