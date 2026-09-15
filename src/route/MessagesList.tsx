@@ -571,8 +571,12 @@ const MessagesList = () => {
         receiverId: activeRoom?.otherUser?._id,
       })
         .then((txHash) => {
-          console.log(`[Blockchain Sync] Encrypted DM anchored to Besu. Tx: ${txHash}`);
-          void updateMessageTxHash({ sessionToken, messageId: result.messageId, txHash });
+          if (txHash) {
+            console.log(`⛓️ [Blockchain Sync] Encrypted DM anchored to Besu. Tx: ${txHash}`);
+            void updateMessageTxHash({ sessionToken, messageId: result.messageId, txHash });
+          } else {
+            console.warn("⚠️ [Blockchain Sync] DM delivered, but Besu node did not return a tx hash.");
+          }
         })
         .catch((err) => console.error("[Blockchain Sync] Failed to anchor DM hash to Besu:", err));
 

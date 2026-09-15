@@ -20,6 +20,14 @@ const CONTRACT_ABI = [
   "function getUserRole(address userAddress) external view returns (string memory)",
 ];
 
+// Besu private network runs with zero gas price.
+// Explicit gasLimit must be specified on all write transactions to prevent ethers v6
+// from triggering internal estimateGas RPC calls which fail with CALL_EXCEPTION on free-gas nodes.
+const BESU_TX_OVERRIDES = {
+  gasLimit: 500_000n,
+  gasPrice: 0n,
+};
+
 /**
  * Deterministically derives a 20-byte Ethereum address from a Convex ID.
  */
@@ -83,9 +91,7 @@ export const approveUser = action({
 
       console.log(`[Blockchain Action] Approving user on Besu: ${args.userId} (${userAddress}, role: ${userRole})`);
 
-      const tx = await contract.verifyUser(userAddress, userRole, {
-        gasPrice: 0n,
-      });
+      const tx = await contract.verifyUser(userAddress, userRole, BESU_TX_OVERRIDES);
 
       const receipt = await tx.wait();
       const txHash = receipt?.hash || tx.hash;
@@ -120,9 +126,13 @@ export const recordMessage = action({
 
       console.log(`[Blockchain Action] Recording message hash on Besu: ${args.messageId} -> ${contentHash}`);
 
-      const tx = await contract.recordHash(args.messageId, contentHash, senderAddr, receiverAddr, {
-        gasPrice: 0n,
-      });
+      const tx = await contract.recordHash(
+        args.messageId,
+        contentHash,
+        senderAddr,
+        receiverAddr,
+        BESU_TX_OVERRIDES
+      );
 
       const receipt = await tx.wait();
       const txHash = receipt?.hash || tx.hash;
@@ -157,7 +167,7 @@ export const relayHash = action({
       if (args.actionType === "APPROVE_USER") {
         const userAddress = getPseudoAddress(args.identifier);
         const role = args.role || "student";
-        const tx = await contract.verifyUser(userAddress, role, { gasPrice: 0n });
+        const tx = await contract.verifyUser(userAddress, role, BESU_TX_OVERRIDES);
         const receipt = await tx.wait();
         const txHash = receipt?.hash || tx.hash;
         return { success: true, txHash };
@@ -165,7 +175,13 @@ export const relayHash = action({
         const contentHash = computeSHA256Bytes32(args.rawTextPayload || "");
         const senderAddr = getPseudoAddress(args.senderId || "admin");
         const receiverAddr = getPseudoAddress(args.receiverId || "public");
-        const tx = await contract.recordHash(args.identifier, contentHash, senderAddr, receiverAddr, { gasPrice: 0n });
+        const tx = await contract.recordHash(
+          args.identifier,
+          contentHash,
+          senderAddr,
+          receiverAddr,
+          BESU_TX_OVERRIDES
+        );
         const receipt = await tx.wait();
         const txHash = receipt?.hash || tx.hash;
         return { success: true, txHash };
@@ -216,7 +232,7 @@ export const recordProfileHash = action({
         profileHash,
         userAddress,
         ethers.ZeroAddress,
-        { gasPrice: 0n },
+        BESU_TX_OVERRIDES,
       );
 
       const receipt = await tx.wait();
