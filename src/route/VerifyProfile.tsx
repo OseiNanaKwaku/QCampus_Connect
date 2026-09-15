@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery } from 'convex/react';
+import { useMutation, useAction, useQuery } from 'convex/react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../convex/_generated/api';
 import AppHeader from '../components/AppHeader';
@@ -60,6 +60,8 @@ const VerifyProfile = () => {
   const { currentUser, sessionToken, isLoading: authLoading } = useAuth();
   const generateUploadUrl = useMutation(convexApi.qchat.generateUploadUrl);
   const submitAcademicVerification = useMutation(convexApi.qchat.submitAcademicVerification);
+  const storeProfileHashTx = useMutation(convexApi.qchat.storeProfileHashTx);
+  const recordProfileHash = useAction(convexApi.blockchainActions.recordProfileHash);
   const liveDepartments = useQuery(convexApi.qchat.getDepartments);
 
   const [idNumber, setIdNumber] = useState('');
@@ -139,13 +141,53 @@ const VerifyProfile = () => {
       }
 
       const { storageId } = await uploadResponse.json();
-      await submitAcademicVerification({
+
+      // STEP 1: Save the verification request to Convex DB first (always succeeds)
+      const result: any = await submitAcademicVerification({
         sessionToken,
         storageId,
         school: institution,
         idNumber: idNumber.toUpperCase(),
         department: department.trim(),
       });
+
+      console.log(`📋 [Profile Submission] ✅ Verification request stored in Convex`);
+      console.log(`   👤 User ID: ${currentUser._id}`);
+      console.log(`   🏫 School: ${institution}`);
+      console.log(`   🆔 ID Number: ${idNumber.toUpperCase()}`);
+
+      // STEP 2: Anchor profile hash to Besu blockchain (fire-and-forget, non-blocking)
+      console.log(`⛓️  [Blockchain] Anchoring profile hash to Hyperledger Besu...`);
+      if (result?.profileHashPayload) {
+        recordProfileHash({
+          userId: currentUser._id,
+          idNumber: idNumber.toUpperCase(),
+          email: currentUser.email,
+          school: institution,
+          role: currentUser.role,
+        })
+          .then((bcResult: any) => {
+            if (bcResult?.success && bcResult?.txHash) {
+              console.log(`✅ [Blockchain] Profile hash anchored to Besu!`);
+              console.log(`   🔗 Tx Hash: ${bcResult.txHash}`);
+              console.log(`   🔑 Profile Hash: ${bcResult.profileHash}`);
+              // Store the txHash back into the verification request in Convex
+              storeProfileHashTx({
+                sessionToken,
+                txHash: bcResult.txHash,
+                profileHash: bcResult.profileHash ?? undefined,
+              }).catch((e: any) => console.warn('[Convex] storeProfileHashTx failed:', e?.message));
+            } else {
+              console.warn(`⚠️  [Blockchain] Besu notice (non-fatal): ${bcResult?.error}`);
+              console.info(`   ℹ️  Profile is stored in Convex. Blockchain anchor will retry later.`);
+            }
+          })
+          .catch((err: any) => {
+            console.error(`❌ [Blockchain] Profile hash anchor failed (non-fatal):`, err?.message || err);
+            console.info(`   ℹ️  Verification request is stored in Convex DB and awaiting admin review.`);
+          });
+      }
+
       setSubmitted(true);
       setSelectedFile(null);
       setSubmitMessage('Verification submitted successfully!');

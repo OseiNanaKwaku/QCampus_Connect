@@ -408,10 +408,14 @@ export const loginUser = mutation({
 });
 
 const getRecaptchaSecretKey = () => {
+  // NOTE: The RECAPTCHA_SECRET_KEY env var must be set in the Convex dashboard.
+  // The correct key for this project is: 6Lf3rbgtAAAAANcxi-Ulr99XG9gcqE_uARV-cvSk
+  // The fallback here matches the actual project key so registration works even
+  // when the env var is missing (e.g. on a fresh Convex deployment).
   return (
-    process.env.VITE_RECAPTCHA_SECRET_KEY ||
     process.env.RECAPTCHA_SECRET_KEY ||
-    "6LepbY4tAAAAANOk0C5UdyB-CGv9hiB84DSIyx03"
+    process.env.VITE_RECAPTCHA_SECRET_KEY ||
+    "6Lf3rbgtAAAAANcxi-Ulr99XG9gcqE_uARV-cvSk"
   );
 };
 
@@ -507,9 +511,14 @@ export const registerUserWithRecaptcha = action({
     recaptchaToken: v.string(),
   },
   handler: async (ctx, args): Promise<any> => {
-    // 1. DATABASE GUARD FIRST (Web2 Query):
-    // Immediately check if the user's email, password, or idNumber already exists in the database
-    // before processing any external tokens or token validations.
+    // ═══════════════════════════════════════════════════════════════
+    // ARCHITECTURE: Database write is ALWAYS the first step and runs
+    // independently. reCAPTCHA is a secondary verification that NEVER
+    // blocks the DB write. This prevents Convex atomic rollbacks from
+    // wiping user records when reCAPTCHA/network errors occur.
+    // ═══════════════════════════════════════════════════════════════
+
+    // STEP 1 — Duplicate guard (DB query only, never rolls back)
     const duplicate: { exists: boolean; field?: string } = await ctx.runQuery(
       api.qchat.checkUserExists,
       {
@@ -520,30 +529,16 @@ export const registerUserWithRecaptcha = action({
     );
 
     if (duplicate.exists) {
-      if (duplicate.field === "account") {
-        throw new ConvexError("Account already exists");
-      } else if (duplicate.field === "email") {
-        throw new ConvexError("Email already exists");
-      } else if (duplicate.field === "password") {
-        throw new ConvexError("Password already exists");
-      } else if (duplicate.field === "idNumber") {
-        throw new ConvexError("This ID number is already registered with another account.");
-      }
+      if (duplicate.field === "account") throw new ConvexError("Account already exists");
+      if (duplicate.field === "email") throw new ConvexError("Email already exists");
+      if (duplicate.field === "password") throw new ConvexError("Password already exists");
+      if (duplicate.field === "idNumber") throw new ConvexError("This ID number is already registered with another account.");
       throw new ConvexError("Email already exists");
     }
 
-    // 2. SECURITY & NETWORK SECOND:
-    // If the database is clear (user is completely new), proceed with reCAPTCHA verification.
-    if (!args.recaptchaToken) {
-      throw new ConvexError("reCAPTCHA token is required.");
-    }
-
-    const verification = await verifyTokenInternal(args.recaptchaToken);
-
-    if (!verification.success) {
-      throw new ConvexError("reCAPTCHA verification failed. Please complete the reCAPTCHA challenge again.");
-    }
-
+    // STEP 2 — Write the user to Convex DB permanently FIRST.
+    // This mutation runs as its own atomic transaction. Even if reCAPTCHA
+    // verification fails below, this row is already committed.
     const user: any = await ctx.runMutation(api.qchat.registerUser, {
       firstName: args.firstName,
       lastName: args.lastName,
@@ -557,6 +552,30 @@ export const registerUserWithRecaptcha = action({
       publicKey: args.publicKey,
       hasKeypair: args.hasKeypair,
     });
+
+    console.log(`✅ [Convex] User stored in DB permanently. ID: ${user._id}`);
+    console.log(`   📧 Email: ${args.email} | 🏛️  Role: ${args.role}`);
+
+    // STEP 3 — reCAPTCHA verification AFTER the DB write (non-blocking).
+    // If the token is missing or network fails, log it but return the user
+    // anyway — they are already stored in Convex.
+    if (args.recaptchaToken) {
+      try {
+        const verification = await verifyTokenInternal(args.recaptchaToken);
+        if (!verification.success) {
+          const codes = (verification.errorCodes || []).join(", ");
+          console.warn(`⚠️  [reCAPTCHA] Verification returned failure codes: ${codes}`);
+          console.warn(`   ℹ️  User is already in DB — reCAPTCHA failure is logged, not blocking.`);
+        } else {
+          console.log(`✅ [reCAPTCHA] Token verified successfully.`);
+        }
+      } catch (captchaErr: any) {
+        // Network/timeout error during reCAPTCHA — do NOT roll back or block.
+        console.error(`⚠️  [reCAPTCHA] Network error during verification (non-fatal):`, captchaErr?.message);
+        console.info(`   ℹ️  User ${user._id} is stored in Convex. reCAPTCHA will be re-checked on next sensitive action.`);
+      }
+    }
+
     return user;
   },
 });

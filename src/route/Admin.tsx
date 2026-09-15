@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery } from 'convex/react';
+import { useMutation, useAction, useQuery } from 'convex/react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
@@ -149,6 +149,7 @@ const Admin = () => {
     adminSessionToken && adminProfile ? { sessionToken: adminSessionToken } : 'skip',
   ) as AdminUser[] | undefined;
   const reviewVerificationRequest = useMutation(convexApi.admin.reviewVerificationRequest);
+  const approveUserOnBlockchain = useAction(convexApi.blockchainActions.approveUser);
 
   // Mode switcher: 'queue' (Identity Review) | 'verification' (User Submission Verification) | 'departments' (Department Management)
   const [viewMode, setViewMode] = useState<'queue' | 'verification' | 'departments'>('verification');
@@ -260,7 +261,37 @@ const Admin = () => {
           approved: true,
         });
 
-        await reviewVerificationRequest({ sessionToken: adminSessionToken, requestId, status: 'approved' });
+        // Patch Convex DB — returns userId for blockchain anchoring
+        const result: any = await reviewVerificationRequest({
+          sessionToken: adminSessionToken,
+          requestId,
+          status: 'approved',
+        });
+
+        console.log(`✅ [Admin] User approved in Convex DB. User ID: ${result?.userId || selectedUser.userId}`);
+        console.log(`⛓️  [Blockchain] Sending approval record to Hyperledger Besu...`);
+
+        // Fire-and-forget: anchor approval to Besu blockchain
+        approveUserOnBlockchain({
+          userId: result?.userId || selectedUser.userId,
+          role: selectedUser.role,
+          name: selectedUser.fullName,
+        })
+          .then((bcResult: any) => {
+            if (bcResult?.success) {
+              console.log(`✅ [Blockchain] Approval anchored on Besu!`);
+              console.log(`   🔗 Tx Hash: ${bcResult.txHash}`);
+              console.log(`   👤 Approved: ${selectedUser.fullName} (${selectedUser.email})`);
+            } else {
+              console.warn(`⚠️  [Blockchain] Besu approval notice (non-fatal): ${bcResult?.error}`);
+              console.info(`   ℹ️  User is approved in Convex DB. Blockchain sync can retry.`);
+            }
+          })
+          .catch((err: any) => {
+            console.error(`❌ [Blockchain] Besu approval failed (non-fatal):`, err?.message || err);
+            console.info(`   ℹ️  Approval is stored in Convex. Blockchain will sync when Besu is reachable.`);
+          });
+
       } else {
         await reviewVerificationRequest({ sessionToken: adminSessionToken, requestId, status: 'rejected' });
       }
@@ -819,13 +850,27 @@ const Admin = () => {
                       </div>
                     </div>
 
-                    <div className="audit-verdict-box success">
-                      <h4>✅ VERDICT: AUTHENTIC SUBMISSION</h4>
-                      <p>
-                        Cryptographic hash matches the Hyperledger Besu
-                        blockchain record. Content and timestamp have not been
-                        altered.
-                      </p>
+                    <div className={`audit-verdict-box ${selectedMessage.blockchainVerified ? 'success' : 'pending'}`}>
+                      {selectedMessage.blockchainVerified ? (
+                        <>
+                          <h4>✅ VERDICT: AUTHENTIC SUBMISSION</h4>
+                          <p>
+                            Cryptographic hash matches the Hyperledger Besu
+                            blockchain record. Content and timestamp have not been
+                            altered.
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <h4>⏳ VERDICT: NOT YET ANCHORED TO BLOCKCHAIN</h4>
+                          <p>
+                            This message has not been anchored to the Hyperledger Besu
+                            blockchain yet. It exists in the Convex database but has no
+                            on-chain proof. This is normal if the Besu node was unreachable
+                            at the time of submission.
+                          </p>
+                        </>
+                      )}
                     </div>
 
                     <div className="audit-report-preview-box">

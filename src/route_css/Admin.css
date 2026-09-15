@@ -175,6 +175,7 @@
 .audit-verdict-box { padding: 1.2rem; border-radius: .85rem; margin-bottom: 1.5rem; text-align: center; }
 .audit-verdict-box.success { border: 1px solid #a7f3d0; background: #ecfdf5; color: #065f46; }
 .audit-verdict-box.error { border: 1px solid #fecaca; background: #fef2f2; color: #991b1b; }
+.audit-verdict-box.pending { border: 1px solid #fcd34d; background: #fffbeb; color: #92400e; }
 .audit-verdict-box h4 { margin: 0 0 .3rem; font-size: 1.1rem; font-weight: 950; }
 .audit-verdict-box p { margin: 0; font-size: .8rem; }
 
