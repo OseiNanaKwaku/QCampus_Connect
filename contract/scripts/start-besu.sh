@@ -19,14 +19,12 @@ podman run -d \
   -p "${RPC_PORT}:8545" \
   hyperledger/besu:latest \
   --network=dev \
-  --miner-enabled \
-  --miner-coinbase=0xfe3b557e8fb62b89f4916b721be55ceb828dbd73 \
   --rpc-http-enabled \
   --rpc-http-host=0.0.0.0 \
   --rpc-http-port=8545 \
   --rpc-http-cors-origins='*' \
   --host-allowlist='*' \
-  --rpc-http-api=ETH,NET,WEB3,MINER,TXPOOL
+  --rpc-http-api=ETH,NET,WEB3
 
 echo "Waiting for RPC..."
 for _ in $(seq 1 30); do

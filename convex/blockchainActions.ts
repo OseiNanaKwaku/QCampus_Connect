@@ -67,32 +67,36 @@ async function getBlockchainConnection() {
     process.env.VITE_SYSTEM_PRIVATE_KEY ||
     "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63";
 
-  // Initialize provider without staticNetwork: true so ethers auto-detects the node's network
-  const provider = new ethers.JsonRpcProvider(rpcUrl);
-
-  // Auto-detect the exact private chain ID from the active running Besu node
-  let currentChainId: bigint | undefined;
+  // 1. Force fetch the exact real-time network parameter settings from the node
+  let networkInfo: ethers.Network;
   try {
-    const network = await provider.getNetwork();
-    currentChainId = network.chainId;
-    console.log(`[Relay Engine] Auto-detected Besu Chain ID: ${currentChainId.toString()}`);
-  } catch (netErr: any) {
-    console.warn(`[Relay Engine] Could not auto-detect chainId from RPC:`, netErr?.message || netErr);
+    const tempProvider = new ethers.JsonRpcProvider(rpcUrl);
+    networkInfo = await tempProvider.getNetwork();
+    console.log(`[Relay Engine] Deep-probing node... Found Chain ID: ${networkInfo.chainId.toString()}`);
+  } catch (probeErr: any) {
+    console.warn(`[Relay Engine] Could not probe network, falling back to 1337:`, probeErr?.message || probeErr);
+    networkInfo = new ethers.Network("besu-dev", 1337n);
   }
 
+  // 2. Initialize a fixed provider configuration passing the discovered network settings explicitly
+  const provider = new ethers.JsonRpcProvider(rpcUrl, networkInfo, {
+    staticNetwork: networkInfo,
+  });
+
+  // 3. Initialize your administrative signing wallet attached to this locked network
   const wallet = new ethers.Wallet(privateKey, provider);
   const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, wallet);
 
   // Besu private network runs with zero gas price.
   // Explicit gasLimit overrides automatic estimateGas calls.
   // Explicit chainId forces signature payload to match the private node's genesis ID.
-  const txOverrides: { gasLimit: bigint; gasPrice: bigint; chainId?: bigint } = {
+  const txOverrides = {
     gasLimit: 500_000n,
     gasPrice: 0n,
-    ...(currentChainId !== undefined ? { chainId: currentChainId } : {}),
+    chainId: networkInfo.chainId,
   };
 
-  return { provider, wallet, contract, chainId: currentChainId, txOverrides };
+  return { provider, wallet, contract, chainId: networkInfo.chainId, txOverrides };
 }
 
 /**
