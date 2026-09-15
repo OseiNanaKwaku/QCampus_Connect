@@ -51,9 +51,10 @@ function computeSHA256Bytes32(payload: string): string {
 
 /**
  * Creates an ethers JsonRpcProvider, Wallet signer, and Contract instance.
+ * Automatically queries and detects the active network chain ID from the node.
  * Runs on the Convex Node.js serverless runtime, bypassing all browser CORS restrictions.
  */
-function getBlockchainConnection() {
+async function getBlockchainConnection() {
   const rpcUrl =
     process.env.BESU_RPC_URL ||
     process.env.BLOCKCHAIN_RPC_URL ||
@@ -66,12 +67,32 @@ function getBlockchainConnection() {
     process.env.VITE_SYSTEM_PRIVATE_KEY ||
     "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63";
 
-  // Use staticNetwork: true to avoid continuous network detection retries if node is starting up
-  const provider = new ethers.JsonRpcProvider(rpcUrl, undefined, { staticNetwork: true });
+  // Initialize provider without staticNetwork: true so ethers auto-detects the node's network
+  const provider = new ethers.JsonRpcProvider(rpcUrl);
+
+  // Auto-detect the exact private chain ID from the active running Besu node
+  let currentChainId: bigint | undefined;
+  try {
+    const network = await provider.getNetwork();
+    currentChainId = network.chainId;
+    console.log(`[Relay Engine] Auto-detected Besu Chain ID: ${currentChainId.toString()}`);
+  } catch (netErr: any) {
+    console.warn(`[Relay Engine] Could not auto-detect chainId from RPC:`, netErr?.message || netErr);
+  }
+
   const wallet = new ethers.Wallet(privateKey, provider);
   const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, wallet);
 
-  return { provider, wallet, contract };
+  // Besu private network runs with zero gas price.
+  // Explicit gasLimit overrides automatic estimateGas calls.
+  // Explicit chainId forces signature payload to match the private node's genesis ID.
+  const txOverrides: { gasLimit: bigint; gasPrice: bigint; chainId?: bigint } = {
+    gasLimit: 500_000n,
+    gasPrice: 0n,
+    ...(currentChainId !== undefined ? { chainId: currentChainId } : {}),
+  };
+
+  return { provider, wallet, contract, chainId: currentChainId, txOverrides };
 }
 
 /**
@@ -85,13 +106,13 @@ export const approveUser = action({
   },
   handler: async (_ctx, args) => {
     try {
-      const { contract } = getBlockchainConnection();
+      const { contract, txOverrides } = await getBlockchainConnection();
       const userAddress = getPseudoAddress(args.userId);
       const userRole = args.role || "student";
 
       console.log(`[Blockchain Action] Approving user on Besu: ${args.userId} (${userAddress}, role: ${userRole})`);
 
-      const tx = await contract.verifyUser(userAddress, userRole, BESU_TX_OVERRIDES);
+      const tx = await contract.verifyUser(userAddress, userRole, txOverrides);
 
       const receipt = await tx.wait();
       const txHash = receipt?.hash || tx.hash;
@@ -119,7 +140,7 @@ export const recordMessage = action({
   },
   handler: async (_ctx, args) => {
     try {
-      const { contract } = getBlockchainConnection();
+      const { contract, txOverrides } = await getBlockchainConnection();
       const contentHash = computeSHA256Bytes32(args.content);
       const senderAddr = getPseudoAddress(args.senderId || "admin");
       const receiverAddr = getPseudoAddress(args.receiverId || "public");
@@ -131,7 +152,7 @@ export const recordMessage = action({
         contentHash,
         senderAddr,
         receiverAddr,
-        BESU_TX_OVERRIDES
+        txOverrides
       );
 
       const receipt = await tx.wait();
@@ -162,12 +183,12 @@ export const relayHash = action({
   },
   handler: async (_ctx, args) => {
     try {
-      const { contract } = getBlockchainConnection();
+      const { contract, txOverrides } = await getBlockchainConnection();
 
       if (args.actionType === "APPROVE_USER") {
         const userAddress = getPseudoAddress(args.identifier);
         const role = args.role || "student";
-        const tx = await contract.verifyUser(userAddress, role, BESU_TX_OVERRIDES);
+        const tx = await contract.verifyUser(userAddress, role, txOverrides);
         const receipt = await tx.wait();
         const txHash = receipt?.hash || tx.hash;
         return { success: true, txHash };
@@ -180,7 +201,7 @@ export const relayHash = action({
           contentHash,
           senderAddr,
           receiverAddr,
-          BESU_TX_OVERRIDES
+          txOverrides
         );
         const receipt = await tx.wait();
         const txHash = receipt?.hash || tx.hash;
@@ -214,7 +235,7 @@ export const recordProfileHash = action({
   },
   handler: async (_ctx, args) => {
     try {
-      const { contract } = getBlockchainConnection();
+      const { contract, txOverrides } = await getBlockchainConnection();
 
       // Build a deterministic payload string from the user's profile fields
       const payload = `${args.userId}|${args.idNumber}|${args.email}|${args.school}|${args.role}`;
@@ -232,7 +253,7 @@ export const recordProfileHash = action({
         profileHash,
         userAddress,
         ethers.ZeroAddress,
-        BESU_TX_OVERRIDES,
+        txOverrides,
       );
 
       const receipt = await tx.wait();
