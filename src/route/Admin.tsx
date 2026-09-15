@@ -529,7 +529,7 @@ const Admin = () => {
                     onClick={handleExecuteVerificationSearch}
                   >
                     <span className="material-symbols-outlined">search</span>{" "}
-                    Verify Submissions
+                    Search
                   </button>
                 </div>
 
