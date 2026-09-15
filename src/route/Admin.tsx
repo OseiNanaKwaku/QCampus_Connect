@@ -447,7 +447,7 @@ const Admin = () => {
               type="button"
             >
               <span className="material-symbols-outlined">verified_user</span>{" "}
-              User Submission Verification
+              User Submission Request
             </button>
             <button
               className={`admin-mode-btn ${viewMode === "queue" ? "active" : ""}`}
