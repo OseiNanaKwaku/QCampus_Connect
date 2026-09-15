@@ -70,7 +70,8 @@ export const getMe = query({
 export const getVerificationRequests = query({
   args: { sessionToken: v.string() },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx, args.sessionToken);
+    const admin = await getAdminBySessionToken(ctx, args.sessionToken);
+    if (!admin) return [];
     const requests = await ctx.db.query("verificationRequests").order("desc").collect();
     const result = [];
 
@@ -151,7 +152,8 @@ export const lookupUserByIdentifier = query({
     searchValue: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx, args.sessionToken);
+    const admin = await getAdminBySessionToken(ctx, args.sessionToken);
+    if (!admin) return null;
     const value = args.searchValue.trim();
     if (!value) return null;
 
@@ -226,9 +228,10 @@ export const getUserMessages = query({
     daysBack: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx, args.sessionToken);
+    const admin = await getAdminBySessionToken(ctx, args.sessionToken);
+    if (!admin) return [];
     const user = await ctx.db.get(args.userId);
-    if (!user) throw new ConvexError("USER_NOT_FOUND");
+    if (!user) return [];
 
     const days = args.daysBack ?? 30;
     const sinceTimestamp = Date.now() - days * 24 * 60 * 60 * 1000;
@@ -508,7 +511,8 @@ export const verifyUserWithDepartment = mutation({
 export const getDepartmentsWithCount = query({
   args: { sessionToken: v.string() },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx, args.sessionToken);
+    const admin = await getAdminBySessionToken(ctx, args.sessionToken);
+    if (!admin) return [];
     const departments = await ctx.db.query("departments").order("asc").collect();
 
     const result = [];
@@ -536,7 +540,8 @@ export const getDepartmentsWithCount = query({
 export const getPendingUsers = query({
   args: { sessionToken: v.string() },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx, args.sessionToken);
+    const admin = await getAdminBySessionToken(ctx, args.sessionToken);
+    if (!admin) return [];
     const pendingUsers = await ctx.db
       .query("users")
       .withIndex("by_verificationStatus", (q) => q.eq("verificationStatus", "pending"))

@@ -185,7 +185,7 @@ const Admin = () => {
   // Live Convex queries for department management & verification
   const departmentsWithCount = useQuery(
     convexApi.admin.getDepartmentsWithCount,
-    adminSessionToken ? { sessionToken: adminSessionToken } : 'skip'
+    adminSessionToken && adminProfile ? { sessionToken: adminSessionToken } : 'skip'
   );
   const activeDepartments = useQuery(convexApi.qchat.getDepartments);
 
@@ -197,14 +197,14 @@ const Admin = () => {
   // Live Convex queries for verification mode
   const searchedUser = useQuery(
     convexApi.admin.lookupUserByIdentifier,
-    adminSessionToken && activeQueryValue
+    adminSessionToken && adminProfile && activeQueryValue
       ? { sessionToken: adminSessionToken, searchType, searchValue: activeQueryValue }
       : 'skip'
   );
 
   const userMessages = useQuery(
     convexApi.admin.getUserMessages,
-    adminSessionToken && searchedUser?._id
+    adminSessionToken && adminProfile && searchedUser?._id
       ? { sessionToken: adminSessionToken, userId: searchedUser._id, daysBack: 30 }
       : 'skip'
   );

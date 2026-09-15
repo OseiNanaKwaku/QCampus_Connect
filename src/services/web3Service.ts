@@ -2,11 +2,15 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../convex/_generated/api";
 import { savePrivateKeyToIndexedDB } from "../utils/cryptoBridge";
 
-const CONVEX_URL =
-  (import.meta.env?.VITE_CONVEX_URL as string) ||
-  "https://rightful-orca-265.convex.cloud";
+// Always use the environment variable — never a hardcoded URL.
+// The hardcoded rightful-orca-265 URL was the old deployment and caused CORS failures.
+const CONVEX_URL = import.meta.env.VITE_CONVEX_URL as string;
 
-const convexClient = new ConvexHttpClient(CONVEX_URL);
+if (!CONVEX_URL) {
+  console.error("❌ [web3Service] VITE_CONVEX_URL is not defined. Blockchain relay will fail.");
+}
+
+const convexClient = new ConvexHttpClient(CONVEX_URL || "");
 const convexApi = api as any;
 
 /**
