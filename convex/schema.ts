@@ -85,6 +85,12 @@ export default defineSchema({
     bb84Key: v.optional(v.string()),
     bb84Fingerprint: v.optional(v.string()),
     bb84ConfirmedUsers: v.optional(v.array(v.id("users"))),
+    bb84Status: v.optional(
+      v.union(v.literal("pending"), v.literal("active"), v.literal("confirmed"))
+    ),
+    status: v.optional(
+      v.union(v.literal("pending"), v.literal("active"), v.literal("confirmed"))
+    ),
     bb84DebugInfo: v.optional(
       v.object({
         totalBitsSent: v.number(),

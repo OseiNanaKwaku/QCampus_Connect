@@ -67,6 +67,8 @@ type RoomDetails = {
   bb84Key?: string;
   bb84Fingerprint?: string;
   bb84ConfirmedUsers?: Id<'users'>[];
+  bb84Status?: 'pending' | 'active' | 'confirmed';
+  status?: 'pending' | 'active' | 'confirmed';
 };
 
 const clampChatDrawerWidth = (width: number) => {
@@ -105,7 +107,8 @@ const MessagesList = () => {
 
   // BB84 Convex mutations
   const initiateBB84KeyExchange = useMutation(convexApi.qchat.initiateBB84KeyExchange);
-  const confirmBB84KeyExchange = useMutation(convexApi.qchat.confirmBB84KeyExchange);
+  const confirmBB84Key = useMutation(convexApi.qchat.confirmBB84Key);
+
   const resetBB84KeyExchange = useMutation(convexApi.qchat.resetBB84KeyExchange);
 
   const requestedRoomId = searchParams.get('roomId') as Id<'chatRooms'> | null;
@@ -198,19 +201,24 @@ const MessagesList = () => {
     }
   }, [activeRoomId, initiateBB84KeyExchange, isSimulatingBB84, roomDetails, sessionToken]);
 
-  // Open modal when entering a room: always if unconfirmed, or when switching to a different room
+  // Open modal when entering a room: always if unconfirmed
   useEffect(() => {
     if (roomDetails?.bb84Fingerprint && currentUser?._id) {
       const isConfirmed = roomDetails.bb84ConfirmedUsers?.includes(currentUser._id);
-      if (!isConfirmed) {
+      const isSessionConfirmed = roomDetails.status === 'confirmed' || roomDetails.bb84Status === 'confirmed';
+      if (!isConfirmed && !isSessionConfirmed) {
         // Unconfirmed — must confirm before chatting
-        setShowKeyModal(true);
-      } else if (activeRoomId !== prevActiveRoomIdRef.current && prevActiveRoomIdRef.current !== null) {
-        // Switching to a different room (confirmed before but re-entering) — show fingerprint reminder
         setShowKeyModal(true);
       }
     }
-  }, [activeRoomId, currentUser?._id, roomDetails?.bb84ConfirmedUsers, roomDetails?.bb84Fingerprint]);
+  }, [activeRoomId, currentUser?._id, roomDetails?.bb84ConfirmedUsers, roomDetails?.bb84Fingerprint, roomDetails?.status, roomDetails?.bb84Status]);
+
+  // Real-time synchronization: Close the BB84 modal immediately on both screens when session status becomes "confirmed"
+  useEffect(() => {
+    if (roomDetails?.status === 'confirmed' || roomDetails?.bb84Status === 'confirmed') {
+      setShowKeyModal(false);
+    }
+  }, [roomDetails?.status, roomDetails?.bb84Status]);
 
   // Decrypt encrypted text messages client-side using Web Crypto AES-GCM
   useEffect(() => {
@@ -307,7 +315,7 @@ const MessagesList = () => {
   const handleConfirmFingerprint = async () => {
     if (!sessionToken || !activeRoomId) return;
     try {
-      await confirmBB84KeyExchange({ sessionToken, roomId: activeRoomId });
+      await confirmBB84Key({ sessionToken, roomId: activeRoomId });
       setShowKeyModal(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not confirm key.');
@@ -1015,7 +1023,7 @@ const MessagesList = () => {
                 type="button"
                 className="msg-context-btn edit"
                 role="menuitem"
-                onClick={handleStartEdit}
+                onClick={() => handleStartEdit()}
               >
                 <span className="material-symbols-outlined">edit</span>
                 Edit message

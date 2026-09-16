@@ -820,6 +820,15 @@ export const getRoomDetails = query({
     const otherUserId = room.participantIds.find((id) => id !== currentUser._id);
     const otherUser = otherUserId ? await ctx.db.get(otherUserId) : null;
 
+    const currentConfirmed = room.bb84ConfirmedUsers ?? [];
+    const isAllConfirmed =
+      currentConfirmed.length > 0 &&
+      room.participantIds.every((pid) => currentConfirmed.includes(pid));
+    const computedStatus =
+      room.bb84Status ??
+      room.status ??
+      (isAllConfirmed ? "confirmed" : room.bb84Key ? "pending" : undefined);
+
     return {
       _id: room._id,
       title: room.title,
@@ -827,7 +836,9 @@ export const getRoomDetails = query({
       otherUser: otherUser ? publicUser(otherUser) : null,
       bb84Key: room.bb84Key,
       bb84Fingerprint: room.bb84Fingerprint,
-      bb84ConfirmedUsers: room.bb84ConfirmedUsers ?? [],
+      bb84ConfirmedUsers: currentConfirmed,
+      bb84Status: computedStatus,
+      status: computedStatus,
       bb84DebugInfo: room.bb84DebugInfo,
     };
   },
@@ -860,6 +871,8 @@ export const initiateBB84KeyExchange = mutation({
       bb84Key: args.bb84Key,
       bb84Fingerprint: args.bb84Fingerprint,
       bb84ConfirmedUsers: [currentUser._id],
+      bb84Status: "pending",
+      status: "pending",
       bb84DebugInfo: args.debugInfo,
       updatedAt: Date.now(),
     });
@@ -892,11 +905,11 @@ export const initiateBB84KeyExchange = mutation({
       });
     }
 
-    return { ok: true };
+    return { ok: true, status: "pending" };
   },
 });
 
-export const confirmBB84KeyExchange = mutation({
+export const confirmBB84Key = mutation({
   args: {
     sessionToken: v.string(),
     roomId: v.id("chatRooms"),
@@ -910,12 +923,20 @@ export const confirmBB84KeyExchange = mutation({
     }
 
     const currentConfirmed = room.bb84ConfirmedUsers ?? [];
-    if (!currentConfirmed.includes(currentUser._id)) {
-      await ctx.db.patch(args.roomId, {
-        bb84ConfirmedUsers: [...currentConfirmed, currentUser._id],
-        updatedAt: Date.now(),
-      });
-    }
+    const nextConfirmed = currentConfirmed.includes(currentUser._id)
+      ? currentConfirmed
+      : [...currentConfirmed, currentUser._id];
+
+    // Status is "confirmed" when all participants in the room have confirmed
+    const isAllConfirmed = room.participantIds.every((pid) => nextConfirmed.includes(pid));
+    const nextStatus = isAllConfirmed ? "confirmed" : "pending";
+
+    await ctx.db.patch(args.roomId, {
+      bb84ConfirmedUsers: nextConfirmed,
+      bb84Status: nextStatus,
+      status: nextStatus,
+      updatedAt: Date.now(),
+    });
 
     const bb84Notifications = await ctx.db
       .query("notifications")
@@ -930,9 +951,11 @@ export const confirmBB84KeyExchange = mutation({
       }
     }
 
-    return { ok: true };
+    return { ok: true, status: nextStatus };
   },
 });
+
+export const confirmBB84KeyExchange = confirmBB84Key;
 
 export const resetBB84KeyExchange = mutation({
   args: {
@@ -951,6 +974,8 @@ export const resetBB84KeyExchange = mutation({
       bb84Key: undefined,
       bb84Fingerprint: undefined,
       bb84ConfirmedUsers: [],
+      bb84Status: undefined,
+      status: undefined,
       bb84DebugInfo: undefined,
       updatedAt: Date.now(),
     });
