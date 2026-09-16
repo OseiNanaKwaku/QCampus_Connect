@@ -1,22 +1,40 @@
-FROM hyperledger/besu:24.12.2
+FROM docker.io/hyperledger/besu:24.12.2
 
-COPY genesis.json /opt/besu/genesis.json
-# Copy the validator key so this node's identity matches the genesis QBFT validator.
-# Without this Besu generates a random key; the node won't be recognised as a
-# validator, QBFT never reaches quorum, and blocks are never produced.
-COPY keys/validator.key /opt/besu/keys/validator.key
+USER root
+
+# Install Node.js, npm, curl, and CA certificates.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        nodejs \
+        npm \
+        curl \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/qcampus
+
+# Copy the compiled MessageVerifier artifact.
+COPY contract/artifacts/contracts/MessageVerifier.sol/MessageVerifier.json ./MessageVerifier.json
+
+# Copy the Besu genesis configuration.
+COPY besu-render-node-main/genesis.json /opt/besu/genesis.json
+
+# Copy the self-initialization script.
+COPY besu-render-node-main/scripts/deploy-if-missing.js ./deploy-if-missing.js
+
+# Copy the Besu validator key.
+# This must match the validator configured in genesis.json.
+COPY besu-render-node-main/keys/validator.key /opt/besu/keys/validator.key
+
+# Install only the runtime dependency needed by the initializer.
+RUN npm init -y \
+    && npm install --omit=dev ethers@6
+
+# Copy the startup script.
+COPY besu-render-node-main/scripts/start-besu.sh /opt/qcampus/start-besu.sh
+
+RUN chmod +x /opt/qcampus/start-besu.sh
 
 EXPOSE 10000
 
-ENTRYPOINT ["besu", \
-  "--rpc-http-enabled", \
-  "--rpc-http-api=ETH,NET,WEB3,QBFT", \
-  "--rpc-http-cors-origins=*", \
-  "--rpc-http-host=0.0.0.0", \
-  "--rpc-http-port=10000", \
-  "--host-allowlist=*", \
-  "--min-gas-price=0", \
-  "--genesis-file=/opt/besu/genesis.json", \
-  "--data-path=/tmp/besu-data", \
-  "--node-private-key-file=/opt/besu/keys/validator.key", \
-  "--sync-min-peers=0"]
+ENTRYPOINT ["/opt/qcampus/start-besu.sh"]
