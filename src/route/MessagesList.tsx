@@ -565,21 +565,6 @@ const MessagesList = () => {
         setDecryptedTexts((prev) => ({ ...prev, [result.messageId]: newMessage.trim() }));
       }
 
-      // 4. Relay SHA-256 hash of Ciphertext payload to Besu private blockchain
-      relayHashToBesu("RECORD_MESSAGE", result.messageId, textToSend, {
-        senderId: currentUser?._id,
-        receiverId: activeRoom?.otherUser?._id,
-      })
-        .then((txHash) => {
-          if (txHash) {
-            console.log(`⛓️ [Blockchain Sync] Encrypted DM anchored to Besu. Tx: ${txHash}`);
-            void updateMessageTxHash({ sessionToken, messageId: result.messageId, txHash });
-          } else {
-            console.warn("⚠️ [Blockchain Sync] DM delivered, but Besu node did not return a tx hash.");
-          }
-        })
-        .catch((err) => console.error("[Blockchain Sync] Failed to anchor DM hash to Besu:", err));
-
       setNewMessage('');
       setSelectedFile(null);
     } catch (err) {

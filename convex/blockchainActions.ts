@@ -3,6 +3,7 @@
 declare const process: { env: Record<string, string | undefined> };
 
 import { action, internalAction } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { ethers } from "ethers";
 
@@ -65,26 +66,77 @@ function computeSHA256Bytes32(payload: string): string {
  * itself, not the Render Besu node.
  */
 function requireRpcUrl(): string {
-  const url =
+  let url =
     process.env.BESU_RPC_URL ||
     process.env.BLOCKCHAIN_RPC_URL;
 
   if (!url) {
     throw new Error(
       "[Besu RPC] BESU_RPC_URL is not set in Convex environment variables. " +
-      "Run: npx convex env set BESU_RPC_URL https://qcampus-blockchain-setup.onrender.com"
+      "Run: npx convex env set BESU_RPC_URL https://qcampus-blockchain-nodelast.onrender.com"
     );
   }
 
   // Guard against the double-prefix typo: BESU_RPC_URL=BESU_RPC_URL=https://...
   if (url.startsWith("BESU_RPC_URL=")) {
-    throw new Error(
-      "[Besu RPC] BESU_RPC_URL value is malformed (double-prefixed). " +
-      "Current value starts with 'BESU_RPC_URL=' — set it to the bare URL."
-    );
+    url = url.replace(/^BESU_RPC_URL=/, "");
   }
 
-  return url;
+  return url.trim();
+}
+
+/**
+ * Pings the Render-hosted Besu RPC endpoint to wake the service if sleeping,
+ * and polls until Besu is ready and returns chain ID 1337 (0x539).
+ */
+async function waitForBesu(
+  rpcUrl: string,
+  timeoutMs = 90_000
+): Promise<void> {
+  const started = Date.now();
+  let attempt = 0;
+
+  while (Date.now() - started < timeoutMs) {
+    attempt++;
+
+    try {
+      console.log(`[Besu Wake] Attempt ${attempt}: pinging ${rpcUrl}`);
+
+      const response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "eth_chainId",
+          params: [],
+          id: Date.now(),
+        }),
+      });
+
+      const body = await response.json();
+
+      if (body?.result === "0x539") {
+        console.log("[Besu Wake] Besu is ready. Chain ID 1337.");
+        return;
+      }
+
+      console.log("[Besu Wake] RPC responded but Besu is not ready:", body);
+    } catch (error: any) {
+      console.log(
+        `[Besu Wake] Render/Besu not ready yet: ${
+          error?.message || String(error)
+        }`
+      );
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+
+  throw new Error(
+    `[Besu Wake] Timed out after ${timeoutMs}ms waiting for Render/Besu`
+  );
 }
 
 /**
@@ -397,6 +449,94 @@ export const approveUser = action({
  * Records a message hash onto the Hyperledger Besu private network.
  * Transport: HTTP JSON-RPC over HTTPS. No WebSocket.
  */
+interface RecordMessageResult {
+  success: boolean;
+  txHash?: string;
+  blockNumber?: string;
+  chainId?: string;
+  error?: string;
+  stage?: "confirmation" | "transaction" | "unknown";
+}
+
+/**
+ * Shared executor for recording message hashes to Besu.
+ * Reused by both the public recordMessage action and the internal anchorMessage action.
+ */
+async function executeRecordMessage(args: {
+  messageId: string;
+  content: string;
+  senderId?: string;
+  receiverId?: string;
+}): Promise<RecordMessageResult> {
+  try {
+    const { contract, txOverrides, chainId } = await getBlockchainConnection();
+    const contentHash = computeSHA256Bytes32(args.content);
+    const senderAddr = getPseudoAddress(args.senderId || "admin");
+    const receiverAddr = getPseudoAddress(args.receiverId || "public");
+
+    console.log(`[Besu Transaction] Sending recordHash for message ${args.messageId}`);
+    console.log(`[Besu Transaction] Hash payload: ${contentHash}`);
+
+    const tx = await contract.recordHash(
+      args.messageId,
+      contentHash,
+      senderAddr,
+      receiverAddr,
+      txOverrides
+    );
+    console.log("[Besu Transaction] Hash:", tx.hash);
+    console.log("[Besu Transaction] Waiting for receipt...");
+
+    let receipt: any = null;
+    try {
+      receipt = await tx.wait(1);
+    } catch (waitErr: any) {
+      console.error("[Besu Transaction] tx.wait() failed:", waitErr?.message || waitErr);
+      return {
+        success: false,
+        txHash: tx.hash,
+        chainId: chainId.toString(),
+        error: `Transaction submitted but not confirmed: ${waitErr?.message || "tx.wait() timeout"}`,
+        stage: "confirmation",
+      };
+    }
+
+    const txHash = receipt?.hash || tx.hash;
+    const blockNumber = receipt?.blockNumber?.toString() ?? "unknown";
+    const status = receipt?.status;
+
+    console.log("[Besu Receipt] Block:", blockNumber);
+    console.log("[Besu Receipt] Status:", status === 1 ? "1 (success)" : `${status} (FAILED)`);
+
+    if (status !== 1) {
+      return {
+        success: false,
+        txHash,
+        blockNumber,
+        chainId: chainId.toString(),
+        error: `Transaction reverted on-chain (status=${status})`,
+        stage: "transaction",
+      };
+    }
+
+    console.log("[Besu Receipt] ✅ recordHash confirmed on Besu. Tx:", txHash);
+    return { success: true, txHash, blockNumber, chainId: chainId.toString() };
+
+  } catch (error: any) {
+    const message: string = error?.message || String(error);
+    console.error("[Besu Contract] recordMessage failed:", message);
+    return {
+      success: false,
+      error: message,
+      stage: "unknown",
+    };
+  }
+}
+
+/**
+ * Records a message hash onto the Hyperledger Besu private network.
+ * Transport: HTTP JSON-RPC over HTTPS. No WebSocket.
+ */
 export const recordMessage = action({
   args: {
     messageId: v.string(),
@@ -405,69 +545,134 @@ export const recordMessage = action({
     receiverId: v.optional(v.string()),
   },
   handler: async (_ctx, args) => {
+    return await executeRecordMessage(args);
+  },
+});
+
+/**
+ * Automatically scheduled backend action that wakes Render/Besu if asleep,
+ * waits until Besu is ready, records the message on-chain, waits for confirmation,
+ * and writes the transaction hash back into the Convex message document.
+ */
+export const anchorMessage = internalAction({
+  args: {
+    messageId: v.id("messages"),
+  },
+  handler: async (ctx, args) => {
+    console.log(`[Message Anchor] Starting blockchain anchor for message ${args.messageId}`);
+
+    // 1. Retrieve message details from Convex
+    let messageInfo: any;
     try {
-      const { contract, txOverrides, chainId } = await getBlockchainConnection();
-      const contentHash = computeSHA256Bytes32(args.content);
-      const senderAddr = getPseudoAddress(args.senderId || "admin");
-      const receiverAddr = getPseudoAddress(args.receiverId || "public");
-
-      console.log(`[Besu Transaction] Sending recordHash for message ${args.messageId}`);
-      console.log(`[Besu Transaction] Hash payload: ${contentHash}`);
-
-      const tx = await contract.recordHash(
-        args.messageId,
-        contentHash,
-        senderAddr,
-        receiverAddr,
-        txOverrides
+      messageInfo = await ctx.runQuery(internal.qchat.getMessageForAnchoring, {
+        messageId: args.messageId,
+      });
+    } catch (queryErr: any) {
+      console.error(
+        `[Message Anchor] Failed looking up message ${args.messageId}:`,
+        queryErr?.message || queryErr
       );
-      console.log("[Besu Transaction] Hash:", tx.hash);
-      console.log("[Besu Transaction] Waiting for receipt...");
+      return { success: false, error: queryErr?.message || "Message query failed", stage: "message_lookup" };
+    }
 
-      let receipt: any = null;
-      try {
-        receipt = await tx.wait(1);
-      } catch (waitErr: any) {
-        console.error("[Besu Transaction] tx.wait() failed:", waitErr?.message || waitErr);
-        return {
-          success: false,
-          txHash: tx.hash,
-          chainId: chainId.toString(),
-          error: `Transaction submitted but not confirmed: ${waitErr?.message || "tx.wait() timeout"}`,
-          stage: "confirmation" as const,
-        };
+    if (!messageInfo) {
+      console.warn(`[Message Anchor] Message ${args.messageId} no longer exists in Convex. Skipping.`);
+      return { success: false, error: "Message not found", stage: "message_lookup" };
+    }
+
+    // 2. Idempotency check: already anchored in Convex?
+    if (messageInfo.blockchainTxHash) {
+      console.log(
+        `[Message Anchor] Message already anchored (${messageInfo.blockchainTxHash}), skipping`
+      );
+      return { success: true, txHash: messageInfo.blockchainTxHash, alreadyAnchored: true };
+    }
+
+    // 3. Resolve RPC URL and wake Render/Besu if sleeping
+    let rpcUrl: string;
+    try {
+      rpcUrl = requireRpcUrl();
+    } catch (urlErr: any) {
+      console.error(`[Message Anchor] RPC URL resolution error:`, urlErr?.message || urlErr);
+      return { success: false, error: urlErr?.message, stage: "rpc_url" };
+    }
+
+    try {
+      await waitForBesu(rpcUrl);
+    } catch (wakeErr: any) {
+      console.error(`[Message Anchor] Render/Besu wake-up failed:`, wakeErr?.message || wakeErr);
+      // Message remains in Convex safe and sound
+      return { success: false, error: wakeErr?.message || "Besu not ready", stage: "render_wake" };
+    }
+
+    // 4. Contract-level idempotency check: verify if message already recorded on-chain
+    try {
+      const { contract } = await getBlockchainConnection();
+      const existingHash = await contract.verifyHash(args.messageId);
+      if (existingHash && existingHash !== ethers.ZeroHash) {
+        console.log(
+          `[Message Anchor] Message ${args.messageId} is already recorded on-chain with hash ${existingHash}. Skipping duplicate transaction.`
+        );
+        return { success: true, alreadyRecordedOnChain: true };
       }
-
-      const txHash = receipt?.hash || tx.hash;
-      const blockNumber = receipt?.blockNumber?.toString() ?? "unknown";
-      const status = receipt?.status;
-
-      console.log("[Besu Receipt] Block:", blockNumber);
-      console.log("[Besu Receipt] Status:", status === 1 ? "1 (success)" : `${status} (FAILED)`);
-
-      if (status !== 1) {
-        return {
-          success: false,
-          txHash,
-          blockNumber,
-          chainId: chainId.toString(),
-          error: `Transaction reverted on-chain (status=${status})`,
-          stage: "transaction" as const,
-        };
+    } catch (checkErr: any) {
+      // verifyHash reverts when messageId is not found ("MessageVerifier: messageId not found").
+      // That is the normal expected case for a message that hasn't been anchored yet.
+      const errMsg = checkErr?.message || String(checkErr);
+      if (!errMsg.includes("not found")) {
+        console.warn(`[Message Anchor] verifyHash check notice:`, errMsg);
       }
+    }
 
-      console.log("[Besu Receipt] ✅ recordHash confirmed on Besu. Tx:", txHash);
-      return { success: true, txHash, blockNumber, chainId: chainId.toString() };
+    // 5. Call existing recordMessage infrastructure
+    console.log(`[Message Anchor] Calling recordMessage for ${args.messageId}`);
+    const recordResult = await executeRecordMessage({
+      messageId: args.messageId,
+      content: messageInfo.text,
+      senderId: messageInfo.senderId,
+      receiverId: messageInfo.receiverId,
+    });
 
-    } catch (error: any) {
-      const message: string = error?.message || String(error);
-      console.error("[Besu Contract] recordMessage failed:", message);
+    if (!recordResult.success || !recordResult.txHash) {
+      console.error(
+        `[Message Anchor] Failed to anchor message ${args.messageId}:`,
+        recordResult.error
+      );
       return {
         success: false,
-        error: message,
-        stage: "unknown" as const,
+        error: recordResult.error,
+        stage: recordResult.stage || "record",
       };
     }
+
+    console.log(`[Message Anchor] Transaction submitted: ${recordResult.txHash}`);
+    console.log(`[Message Anchor] Transaction confirmed in block ${recordResult.blockNumber}`);
+
+    // 6. Save confirmed tx hash to Convex message document via internal mutation
+    try {
+      await ctx.runMutation(internal.qchat.updateMessageTxHashFromBlockchain, {
+        messageId: args.messageId,
+        txHash: recordResult.txHash,
+      });
+      console.log(`[Message Anchor] Saved tx hash to Convex`);
+    } catch (mutationErr: any) {
+      console.error(
+        `[Message Anchor] Failed saving txHash to Convex for message ${args.messageId}:`,
+        mutationErr?.message || mutationErr
+      );
+      return {
+        success: false,
+        txHash: recordResult.txHash,
+        error: mutationErr?.message || "Failed updating Convex document",
+        stage: "convex_update",
+      };
+    }
+
+    return {
+      success: true,
+      txHash: recordResult.txHash,
+      blockNumber: recordResult.blockNumber,
+    };
   },
 });
 

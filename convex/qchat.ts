@@ -1,8 +1,8 @@
 declare const process: { env: Record<string, string | undefined> };
 
 import { ConvexError, v } from "convex/values";
-import { action, mutation, query } from "./_generated/server";
-import { api } from "./_generated/api";
+import { action, mutation, query, internalMutation, internalQuery } from "./_generated/server";
+import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -1309,6 +1309,11 @@ export const sendMessage = mutation({
       });
     }
 
+    // Automatically schedule blockchain anchoring in the background (non-blocking)
+    await ctx.scheduler.runAfter(0, internal.blockchainActions.anchorMessage, {
+      messageId,
+    });
+
     return { messageId };
   },
 });
@@ -1739,3 +1744,46 @@ export const updateMessageTxHash = mutation({
     return { ok: true };
   },
 });
+
+export const getMessageForAnchoring = internalQuery({
+  args: {
+    messageId: v.id("messages"),
+  },
+  handler: async (ctx, args) => {
+    const message = await ctx.db.get(args.messageId);
+    if (!message) return null;
+    const room = await ctx.db.get(message.roomId);
+    const receiverId = room?.participantIds?.find((id) => id !== message.senderId);
+    return {
+      messageId: message._id,
+      text: message.text,
+      senderId: message.senderId,
+      receiverId: receiverId ?? "public",
+      blockchainTxHash: message.blockchainTxHash,
+    };
+  },
+});
+
+export const updateMessageTxHashFromBlockchain = internalMutation({
+  args: {
+    messageId: v.id("messages"),
+    txHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const message = await ctx.db.get(args.messageId);
+    if (!message) {
+      console.warn(`[Message Anchor] Message ${args.messageId} not found during txHash update.`);
+      return { ok: false, error: "Message not found" };
+    }
+    if (message.blockchainTxHash) {
+      console.log(`[Message Anchor] Message ${args.messageId} already has blockchainTxHash ${message.blockchainTxHash}. Skipping overwrite.`);
+      return { ok: true, alreadyUpdated: true };
+    }
+    await ctx.db.patch(args.messageId, {
+      blockchainTxHash: args.txHash,
+    });
+    console.log(`[Message Anchor] Saved tx hash to Convex: ${args.txHash} for message ${args.messageId}`);
+    return { ok: true };
+  },
+});
+
