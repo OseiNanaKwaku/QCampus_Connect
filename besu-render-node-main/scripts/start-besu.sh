@@ -10,7 +10,13 @@ echo " QCampus Connect — Besu Self-Initializing Node"
 echo "=============================================="
 echo
 
+# Keep the Java heap below Render's 512 MB container limit.
+# This leaves memory available for Besu's native JVM memory,
+# Node.js, and the container itself.
+export JAVA_OPTS="${JAVA_OPTS:-} -Xms128m -Xmx256m"
+
 echo "Starting Hyperledger Besu..."
+echo "Java options: ${JAVA_OPTS}"
 
 besu \
   --rpc-http-enabled \
