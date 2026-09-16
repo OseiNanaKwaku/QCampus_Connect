@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "blockchain:monitor": "tsx blockchain/monitor.ts",
     "blockchain:show": "tsx blockchain/show-chain.ts",
-    "blockchain:logs": "cat blockchain/data/transactions_log.json"
+    "blockchain:logs": "cat blockchain/data/transactions_log.json",
+    "blockchain:wake": "./scripts/wake-blockchain.sh"
   },
   "dependencies": {
     "convex": "^1.40.0",
