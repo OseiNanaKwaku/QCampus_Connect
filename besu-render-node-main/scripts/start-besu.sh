@@ -9,7 +9,7 @@ echo "=============================================="
 # This prevents Besu from ballooning and crashing Render's 512MB RAM ceiling!
 export JAVA_OPTS="-Xms128m -Xmx256m -Dvertx.disablecontextdata=true -Dvertx.threadChecks=false"
 
-echo "Starting Hyperledger Besu..."
+echo "Starting Hyperledger Besu.."
 echo "Java options: $JAVA_OPTS"
 
 # Launch Besu with completely disabled block, worldstate, and header caches
