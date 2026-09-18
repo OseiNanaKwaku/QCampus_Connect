@@ -9,7 +9,7 @@ echo "=============================================="
 # The Java runtime will read this environment variable automatically on launch!
 export JAVA_OPTS="-Xms128m -Xmx256m"
 
-echo "Starting Hyperledger Besu..."
+echo "Starting Hyperledger Besu..." 
 echo "Java constraints enforced: $JAVA_OPTS"
 
 # Cleanly launch the binary without passing raw Java options to the Besu CLI array
