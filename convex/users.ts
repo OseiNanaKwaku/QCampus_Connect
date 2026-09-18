@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 
 // Existing query – left unchanged
@@ -114,6 +114,29 @@ export const updateBlockchainStatus = mutation({
       blockchainVerified: true,
       txHash: args.txHash,
       blockNumber: args.blockNumber,
+      verificationStatus: "approved",
+      approved: true,
+    });
+    console.log(`[Database Sync] Successfully updated user ${args.userId} with Tx Hash: ${args.txHash}`);
+  },
+});
+
+export const updateUserBlockchainStatus = internalMutation({
+  args: {
+    userId: v.string(),
+    txHash: v.string(),
+    blockNumber: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userDocId = ctx.db.normalizeId("users", args.userId);
+    if (!userDocId) {
+      console.warn(`[User Blockchain Sync] Invalid user ID: ${args.userId}`);
+      return;
+    }
+    await ctx.db.patch(userDocId, {
+      blockchainVerified: true,
+      txHash: args.txHash,
+      ...(args.blockNumber ? { blockNumber: args.blockNumber } : {}),
       verificationStatus: "approved",
       approved: true,
     });

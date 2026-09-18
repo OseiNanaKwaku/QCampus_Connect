@@ -136,6 +136,18 @@ export const reviewVerificationRequest = mutation({
       ...walletPatch,
     });
 
+    // Decoupled background scheduling to push blockchain anchoring to worker queue
+    if (approved) {
+      const user = await ctx.db.get(request.userId);
+      if (user) {
+        await ctx.scheduler.runAfter(0, internal.blockchainActions.approveUserOnBlockchain, {
+          userId: request.userId,
+          role: user.role,
+          name: user.fullName,
+        });
+      }
+    }
+
     // Return user id so the admin frontend can trigger the blockchain approval action
     return { ok: true, userId: request.userId, approved };
   },
@@ -509,6 +521,14 @@ export const verifyUserWithDepartment = mutation({
       approved: args.approved,
       updatedAt: now,
     });
+
+    if (args.approved && user) {
+      await ctx.scheduler.runAfter(0, internal.blockchainActions.approveUserOnBlockchain, {
+        userId: args.userId,
+        role: user.role,
+        name: user.fullName,
+      });
+    }
 
     return { ok: true };
   },
