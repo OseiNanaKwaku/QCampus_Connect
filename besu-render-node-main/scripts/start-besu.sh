@@ -5,15 +5,17 @@ echo "=============================================="
 echo " QCampus Connect — Besu Self-Initializing Node "
 echo "=============================================="
 
-# 💡 MEMORY ALLOCATION: Hard cap the Java Virtual Machine heap to 256MB.
-# This leaves 256MB of free breathing room on Render's 512MB free tier plan.
-export BESU_MEM_OPTS="-Xms128m -Xmx256m"
+# 💡 THE CORRECT JAVA METHOD: Pass the caps into JAVA_OPTS. 
+# The Java runtime will read this environment variable automatically on launch!
+export JAVA_OPTS="-Xms128m -Xmx256m"
 
 echo "Starting Hyperledger Besu..."
-echo "Java options: $BESU_MEM_OPTS"
+echo "Java constraints enforced: $JAVA_OPTS"
 
-exec /opt/besu/bin/besu $BESU_MEM_OPTS \
+# Cleanly launch the binary without passing raw Java options to the Besu CLI array
+exec /opt/besu/bin/besu \
   --rpc-http-enabled \
+  --rpc-http-api=ETH,NET,WEB3 \
   --rpc-http-cors-origins="*" \
   --rpc-http-host=0.0.0.0 \
   --rpc-http-port=10000 \
