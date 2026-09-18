@@ -147,27 +147,35 @@ function requirePrivateKey(): string {
   return key;
 }
 
-/**
- * Initializes a resilient blockchain connection designed for cold-start environments:
- * 1. Explicit FetchRequest with a 60,000ms client-side timeout swallows Render sleep cycles safely.
- * 2. Static network profile eliminates redundant pre-flight network probing loops (eth_chainId)
- *    while the Besu container boots.
- */
+// Helper function to build a high-timeout network connection
 async function getBlockchainConnection() {
-  const rpcUrl = requireRpcUrl();
-  const privateKey = requirePrivateKey();
+  const rpcUrl = process.env.BESU_RPC_URL || process.env.BLOCKCHAIN_RPC_URL;
+  const privateKey = process.env.SYSTEM_PRIVATE_KEY || process.env.ADMIN_PRIVATE_KEY;
 
-  // 1. Explicit FetchRequest with 60,000ms client-side timeout
-  const fetchRequest = new ethers.FetchRequest(rpcUrl);
-  fetchRequest.timeout = RPC_TIMEOUT_MS;
+  if (!rpcUrl || !privateKey) {
+    throw new Error("[Besu RPC] Configuration missing. Ensure BESU_RPC_URL and SYSTEM_PRIVATE_KEY are declared.");
+  }
 
-  // 2. Static network profile matching our custom QBFT genesis settings (Chain ID 1337)
-  const staticNetwork = new ethers.Network(CHAIN_NETWORK_NAME, EXPECTED_CHAIN_ID);
-  const provider = new ethers.JsonRpcProvider(fetchRequest, staticNetwork, {
-    staticNetwork,
+  // Ensure clean URL layout protocols
+  let cleanUrl = rpcUrl.trim();
+  if (cleanUrl.startsWith("BESU_RPC_URL=")) {
+    cleanUrl = cleanUrl.replace(/^BESU_RPC_URL=/, "");
+  }
+  const formattedUrl = cleanUrl.startsWith("http") ? cleanUrl : `https://${cleanUrl}`;
+  console.log("[Besu RPC] Initializing connection to:", formattedUrl);
+
+  // 💡 THE CURE: Instantiate an explicit FetchRequest and extend timeout to 60 seconds!
+  // This allows the serverless thread to wait calmly while Render wakes up from its sleep cycle.
+  const fetchRequest = new ethers.FetchRequest(formattedUrl);
+  fetchRequest.timeout = 60000; 
+
+  // Pin a static network layout to bypass redundant background probing queries while booting
+  const staticNetworkProfile = new ethers.Network("hyperledger-besu-private", 1337n);
+
+  const provider = new ethers.JsonRpcProvider(fetchRequest, staticNetworkProfile, {
+    staticNetwork: staticNetworkProfile,
   });
 
-  // 3. Ethers wallet signer and contract instance
   const wallet = new ethers.Wallet(privateKey, provider);
   const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, wallet);
 
@@ -175,7 +183,7 @@ async function getBlockchainConnection() {
     provider,
     wallet,
     contract,
-    chainId: EXPECTED_CHAIN_ID,
+    chainId: 1337n,
   };
 }
 
