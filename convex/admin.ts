@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { ethers } from "ethers";
@@ -335,6 +336,11 @@ export const sendAuditReportToUser = mutation({
       body: "Your submission audit report has been issued by the Verification Desk.",
       read: false,
       createdAt: now,
+    });
+
+    // Schedule background blockchain anchoring without blocking the mutation
+    await ctx.scheduler.runAfter(0, internal.blockchainActions.anchorMessage, {
+      messageId,
     });
 
     return { ok: true, messageId };

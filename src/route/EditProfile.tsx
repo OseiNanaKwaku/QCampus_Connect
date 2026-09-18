@@ -8,7 +8,6 @@ import Sidebar from '../components/Sidebar';
 import Footer from '../components/Footer';
 import { useAuth } from '../context/AuthContext.jsx';
 import { clearSessionToken } from '../lib/session';
-import { relayHashToBesu } from '../utils/cryptoBridge';
 import '../route_css/MessagesList.css';
 import '../route_css/EditProfile.css';
 
@@ -199,15 +198,6 @@ const EditProfile = () => {
 
       // 1. Submit account deletion to Convex backend
       await deleteAccount({ sessionToken });
-
-      // 2. Relay the deletion transaction to the Besu network
-      // (Binds the user address to "deleted" role on-ledger)
-      try {
-        await relayHashToBesu("APPROVE_USER", userId, "ACCOUNT_DELETED", { role: "deleted" });
-        console.log("[Blockchain Sync] Account deletion recorded on Besu.");
-      } catch (blockchainErr) {
-        console.error("[Blockchain Sync] Failed to record deletion on Besu:", blockchainErr);
-      }
 
       // 3. Clear local session cookies and redirect
       clearSessionToken();

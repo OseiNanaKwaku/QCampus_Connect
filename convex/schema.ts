@@ -45,6 +45,9 @@ export default defineSchema({
     verificationSubmittedAt: v.optional(v.number()),
     publicKey: v.optional(v.string()),
     hasKeypair: v.optional(v.boolean()),
+    blockchainVerified: v.optional(v.boolean()),
+    txHash: v.optional(v.string()),
+    blockNumber: v.optional(v.string()),
     updatedAt: v.number(),
   })
     .index("by_email", ["email"])
@@ -131,6 +134,9 @@ export default defineSchema({
     editedAt: v.optional(v.number()),
     deletedAt: v.optional(v.number()),
     blockchainTxHash: v.optional(v.string()),
+    blockchainVerified: v.optional(v.boolean()),
+    txHash: v.optional(v.string()),
+    blockNumber: v.optional(v.string()),
   })
     .index("by_roomId_and_createdAt", ["roomId", "createdAt"])
     .index("by_senderId", ["senderId"])

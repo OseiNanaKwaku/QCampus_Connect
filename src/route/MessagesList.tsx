@@ -8,7 +8,6 @@ import Sidebar from '../components/Sidebar';
 import Footer from '../components/Footer';
 import { AttachmentLink, AttachmentPicker, uploadAttachment } from '../components/AttachmentTools';
 import { useAuth } from '../context/AuthContext.jsx';
-import { relayHashToBesu } from '../utils/cryptoBridge';
 import { BB84KeyModal } from '../components/BB84KeyModal';
 import {
   performBB84KeyExchange,
@@ -103,7 +102,6 @@ const MessagesList = () => {
   const markAsRead = useMutation(convexApi.qchat.markAsRead);
   const deleteMessage = useMutation(convexApi.qchat.deleteMessage);
   const editMessage = useMutation(convexApi.qchat.editMessage);
-  const updateMessageTxHash = useMutation(convexApi.qchat.updateMessageTxHash);
 
   // BB84 Convex mutations
   const initiateBB84KeyExchange = useMutation(convexApi.qchat.initiateBB84KeyExchange);
@@ -433,13 +431,6 @@ const MessagesList = () => {
     setIsDeleting(true);
     try {
       await deleteMessage({ sessionToken, messageId: deletedMessageId });
-      
-      relayHashToBesu("RECORD_MESSAGE", `${deletedMessageId}-delete-${Date.now()}`, "MESSAGE_DELETED", {
-        senderId: currentUser?._id,
-        receiverId: activeRoom?.otherUser?._id,
-      })
-        .then((txHash) => console.log(`[Blockchain Sync] Message deletion anchored to Besu. Tx: ${txHash}`))
-        .catch((err) => console.error("[Blockchain Sync] Failed to anchor message deletion to Besu:", err));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not delete message.');
     } finally {
@@ -479,16 +470,6 @@ const MessagesList = () => {
         ...(ivToStore ? { iv: ivToStore } : {}),
         isEncrypted,
       });
-      
-      relayHashToBesu("RECORD_MESSAGE", `${editedMessageId}-edit-${Date.now()}`, messageTextToStore, {
-        senderId: currentUser?._id,
-        receiverId: activeRoom?.otherUser?._id,
-      })
-        .then((txHash) => {
-          console.log(`[Blockchain Sync] Message edit anchored to Besu. Tx: ${txHash}`);
-          void updateMessageTxHash({ sessionToken, messageId: editedMessageId, txHash });
-        })
-        .catch((err) => console.error("[Blockchain Sync] Failed to anchor message edit to Besu:", err));
 
       if (isEncrypted) {
         setDecryptedTexts((prev) => ({ ...prev, [editedMessageId]: editText }));

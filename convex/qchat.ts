@@ -367,6 +367,13 @@ export const registerUser = mutation({
       updatedAt: now,
     });
 
+    // Decoupled background scheduling to push blockchain approval to worker queue
+    await ctx.scheduler.runAfter(0, internal.blockchainActions.approveUserOnBlockchain, {
+      userId,
+      role: args.role,
+      name: fullName,
+    });
+
     const user = await ctx.db.get(userId);
     if (!user) throw new ConvexError("Could not create user.");
     return { ...publicUser(user), messageCount: 0 };
@@ -1793,6 +1800,7 @@ export const updateMessageTxHashFromBlockchain = internalMutation({
   args: {
     messageId: v.id("messages"),
     txHash: v.string(),
+    blockNumber: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const message = await ctx.db.get(args.messageId);
@@ -1806,6 +1814,9 @@ export const updateMessageTxHashFromBlockchain = internalMutation({
     }
     await ctx.db.patch(args.messageId, {
       blockchainTxHash: args.txHash,
+      txHash: args.txHash,
+      ...(args.blockNumber ? { blockNumber: args.blockNumber } : {}),
+      blockchainVerified: true,
     });
     console.log(`[Message Anchor] Saved tx hash to Convex: ${args.txHash} for message ${args.messageId}`);
     return { ok: true };

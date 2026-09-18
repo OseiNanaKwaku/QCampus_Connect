@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 
 // Existing query – left unchanged
 export const getMe = query({
@@ -30,11 +31,93 @@ export const getMe = query({
   },
 });
 
-// 1. Fetch a user by their Convex document ID
+// 1. Fetch a user by their Convex document ID with safe normalizeId
 export const getById = query({
-  args: { id: v.id("users") },
+  args: { id: v.any() },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
+    // Gracefully handle raw or invalid string checking to prevent type-casting crashes
+    try {
+      if (!args.id || typeof args.id !== "string") return null;
+      const normalizedId = ctx.db.normalizeId("users", args.id);
+      if (!normalizedId) return null;
+      return await ctx.db.get(normalizedId);
+    } catch {
+      return null;
+    }
+  },
+});
+
+export const registerUserInDatabase = mutation({
+  args: {
+    email: v.string(),
+    firstName: v.string(),
+    lastName: v.string(),
+    indexNumber: v.string(),
+    role: v.string(),
+    walletAddress: v.string(),
+    passwordHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Verify duplicate emails are caught beforehand
+    const cleanEmail = args.email.trim().toLowerCase();
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", cleanEmail))
+      .first();
+
+    if (existing) {
+      throw new Error("An account with this email address already exists.");
+    }
+
+    const cleanFirstName = args.firstName.trim();
+    const cleanLastName = args.lastName.trim();
+    const fullName = `${cleanFirstName} ${cleanLastName}`.trim();
+    const now = Date.now();
+    const sessionToken = `session:${cleanEmail}:${crypto.randomUUID()}`;
+
+    // Securely lock the user profile data row into Convex cloud tables permanently
+    const newUserId = await ctx.db.insert("users", {
+      email: cleanEmail,
+      firstName: cleanFirstName,
+      lastName: cleanLastName,
+      fullName,
+      school: "University of Energy and Natural Resources (UENR)",
+      indexNumber: args.indexNumber.trim().toUpperCase(),
+      idNumber: args.indexNumber.trim().toUpperCase(),
+      role: args.role === "lecturer" ? "lecturer" : "student",
+      walletAddress: args.walletAddress,
+      blockchainVerified: false,
+      txHash: "",
+      blockNumber: "",
+      passwordHash: args.passwordHash,
+      sessionToken,
+      verificationStatus: "unverified",
+      approved: false,
+      updatedAt: now,
+    });
+
+    // Decoupled background scheduling to push blockchain anchoring to worker queue
+    await ctx.scheduler.runAfter(0, internal.blockchainActions.approveUserOnBlockchain, {
+      userId: newUserId,
+      role: args.role,
+      name: fullName,
+    });
+
+    return newUserId;
+  },
+});
+
+export const updateBlockchainStatus = mutation({
+  args: { userId: v.id("users"), txHash: v.string(), blockNumber: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.userId, {
+      blockchainVerified: true,
+      txHash: args.txHash,
+      blockNumber: args.blockNumber,
+      verificationStatus: "approved",
+      approved: true,
+    });
+    console.log(`[Database Sync] Successfully updated user ${args.userId} with Tx Hash: ${args.txHash}`);
   },
 });
 

@@ -70,7 +70,6 @@ const Register = () => {
 
   const registerUser = useMutation(convexApi.qchat.registerUser);
   const registerUserWithRecaptcha = useAction(convexApi.qchat.registerUserWithRecaptcha);
-  const approveUserOnBlockchain = useAction(convexApi.blockchainActions.approveUser);
   const departments = useQuery(convexApi.qchat.getDepartments);
 
   // Close dropdown when clicking outside (commented out as dropdown is disabled)
@@ -281,22 +280,7 @@ const Register = () => {
       console.log(`   👤 User ID:   ${user._id}`);
       console.log(`   📧 Email:     ${email}`);
       console.log(`   🏛️  Role:      ${role}`);
-      console.log(`⛓️  [Blockchain] Sending approval to Hyperledger Besu (via Convex action)...`);
-
-      approveUserOnBlockchain({ userId: user._id, role, name: `${firstName} ${lastName}` })
-        .then((res: any) => {
-          if (res?.success) {
-            console.log(`✅ [Blockchain] Registration approved on Besu!`);
-            console.log(`   🔗 Tx Hash: ${res.txHash}`);
-          } else {
-            console.warn(`⚠️  [Blockchain] Besu approval notice (non-fatal): ${res?.error}`);
-            console.info(`   ℹ️  User is registered in Convex DB. Blockchain sync will retry on next login.`);
-          }
-        })
-        .catch((err: any) => {
-          console.error(`❌ [Blockchain] Failed to approve user on Besu (non-fatal):`, err?.message || err);
-          console.info(`   ℹ️  User is registered in Convex DB. Blockchain sync will retry.`);
-        });
+      console.log(`⛓️  [Blockchain] Background approval scheduled atomically on Hyperledger Besu.`);
 
       saveSessionToken(user.sessionToken);
       localStorage.setItem("qchat_active_user_id", user._id);

@@ -6,6 +6,7 @@ import type { Id } from '../../convex/_generated/dataModel';
 import AppHeader from '../components/AppHeader';
 import Footer from '../components/Footer';
 import { clearAdminSessionToken, getAdminSessionToken, onAdminSessionTokenChange } from '../lib/adminSession';
+import { generateDynamicAuditReportText, CryptographicAuditReportView } from '../components/CryptographicAuditReportView';
 import '../route_css/MessagesList.css';
 import '../route_css/Admin.css';
 
@@ -45,99 +46,6 @@ const formatIsoDateTime = (timestamp: number) => {
   const d = new Date(timestamp);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} GMT`;
-};
-
-const formatLongDate = (timestamp?: number) => {
-  const d = timestamp ? new Date(timestamp) : new Date();
-  return new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).format(d);
-};
-
-const padBoxLine = (content: string, targetWidth = 81) => {
-  let len = 0;
-  for (const char of content) {
-    len += char.codePointAt(0)! > 0xffff ? 2 : 1;
-  }
-  const spaces = Math.max(0, targetWidth - len);
-  return `│${content}${' '.repeat(spaces)}│`;
-};
-
-const generateAuditReportText = (user: any, msg: any) => {
-  const studentName = user.fullName || 'Osei Nana Kwaku';
-  const indexNumber = user.indexNumber || user.idNumber || user.staffId || 'UEB3509022';
-  const email = user.email || 'josephnok088@uenr.edu.gh';
-  const assignment = msg.attachmentName || 'assignment.pdf';
-  const submissionDate = formatLongDate(msg.createdAt);
-  const requestDate = formatLongDate();
-  const blockchainTime = msg.blockchainTimestamp ? msg.blockchainTimestamp.replace(' GMT', '') : '2026-09-08 14:07:18';
-  const convexTimeOnly = new Date(msg.createdAt).toTimeString().slice(0, 8);
-  const issuedDate = formatLongDate();
-  const dateStr = new Date().toISOString().slice(0, 10);
-  const verificationId = `VER-${dateStr}-001`;
-
-  const top = '┌' + '─'.repeat(81) + '┐';
-  const divider = '│  ' + '─'.repeat(77) + ' │';
-  const bottom = '└' + '─'.repeat(81) + '┘';
-
-  return [
-    top,
-    padBoxLine(''),
-    padBoxLine('                    🏛️ UNIVERSITY OF ENERGY AND NATURAL RESOURCES'),
-    padBoxLine('                    Department of Computer Science and Informatics'),
-    padBoxLine(''),
-    padBoxLine('                    VERIFICATION OF ACADEMIC SUBMISSION'),
-    padBoxLine('                    QCampus Connect Cryptographic Audit Report'),
-    padBoxLine(''),
-    divider,
-    padBoxLine(''),
-    padBoxLine('  📋 CASE DETAILS'),
-    divider,
-    padBoxLine(''),
-    padBoxLine(`  Student Name:          ${studentName}`),
-    padBoxLine(`  Index Number:          ${indexNumber}`),
-    padBoxLine(`  Email:                 ${email}`),
-    padBoxLine(`  Assignment:            ${assignment}`),
-    padBoxLine(`  Submission Date:       ${submissionDate}`),
-    padBoxLine(`  Verification Request:  ${requestDate}`),
-    padBoxLine(''),
-    divider,
-    padBoxLine(''),
-    padBoxLine('  ✅ VERIFICATION RESULTS'),
-    divider,
-    padBoxLine(''),
-    padBoxLine('  1. File Integrity:         ✅ PASSED'),
-    padBoxLine('     └─ File has NOT been tampered with'),
-    padBoxLine(''),
-    padBoxLine('  2. Sender Identity:        ✅ PASSED'),
-    padBoxLine('     ├─ Wallet address matches registered student record'),
-    padBoxLine(`     └─ Student: ${studentName} (${indexNumber})`),
-    padBoxLine(''),
-    padBoxLine('  3. Submission Time:        ✅ VERIFIED'),
-    padBoxLine(`     ├─ Blockchain timestamp: ${blockchainTime}`),
-    padBoxLine('     ├─ This timestamp is IMMUTABLE and cannot be altered'),
-    padBoxLine(`     └─ Convex timestamp (${convexTimeOnly}) is NOT authoritative`),
-    padBoxLine(''),
-    divider,
-    padBoxLine(''),
-    padBoxLine('  📊 CONCLUSION'),
-    divider,
-    padBoxLine(''),
-    padBoxLine(`  The academic submission "${assignment}" has been cryptographically verified`),
-    padBoxLine('  using the QCampus Connect blockchain audit system. The evidence is:'),
-    padBoxLine(''),
-    divider,
-    padBoxLine(''),
-    padBoxLine('  Issued by:          QCampus Connect Verification System'),
-    padBoxLine(`  Issued Date:        ${issuedDate}`),
-    padBoxLine(`  Verification ID:    ${verificationId}`),
-    padBoxLine('  Cryptographic Proof: ✅ Attached (Blockchain transaction)'),
-    padBoxLine(''),
-    padBoxLine('  This verification is cryptographically binding and can be independently'),
-    padBoxLine('  verified by anyone with access to the QCampus Connect blockchain node.'),
-    padBoxLine(''),
-    divider,
-    padBoxLine(''),
-    bottom,
-  ].join('\n');
 };
 
 const Admin = () => {
@@ -387,18 +295,12 @@ const Admin = () => {
     }
   };
 
-  const handleQuickPill = (type: 'email' | 'indexNumber' | 'staffId', val: string) => {
-    setSearchType(type);
-    setSearchValue(val);
-    setActiveQueryValue(val);
-  };
-
   const handleSendAuditReport = async () => {
     if (!searchedUser || !selectedMessage || !adminSessionToken) return;
     setIsSendingReport(true);
     setSendSuccessMessage('');
     try {
-      const reportText = generateAuditReportText(searchedUser, selectedMessage);
+      const reportText = generateDynamicAuditReportText(searchedUser, selectedMessage);
       await sendAuditReportToUser({
         sessionToken: adminSessionToken,
         userId: searchedUser._id,
@@ -563,19 +465,6 @@ const Admin = () => {
                     Search
                   </button>
                 </div>
-
-                {/* <div className="quick-demo-pills">
-                  <span className="quick-demo-label">Quick Test Data:</span>
-                  <button className="quick-pill" type="button" onClick={() => handleQuickPill('indexNumber', 'UEB3509022')}>
-                    Index: UEB3509022 (Osei Nana Kwaku)
-                  </button>
-                  <button className="quick-pill" type="button" onClick={() => handleQuickPill('staffId', 'PS001')}>
-                    Staff ID: PS001 (Dr. Peter Nimbe)
-                  </button>
-                  <button className="quick-pill" type="button" onClick={() => handleQuickPill('email', 'osei@uenr.edu.gh')}>
-                    Email: osei@uenr.edu.gh
-                  </button>
-                </div> */}
               </section>
 
               {/* User Result Card */}
@@ -874,11 +763,26 @@ const Admin = () => {
                     </div>
 
                     <div className="audit-report-preview-box">
-                      <label>
-                        📜 Formatted Audit Report (Sent directly to user)
+                      <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
+                        🏛️ Dynamic Cryptographic Audit Card (Mined Ledger Record)
+                      </label>
+                      <CryptographicAuditReportView
+                        record={{
+                          firstName: searchedUser.firstName || searchedUser.fullName?.split(' ')[0] || 'Student',
+                          lastName: searchedUser.lastName || searchedUser.fullName?.split(' ').slice(1).join(' ') || '',
+                          indexNumber: (searchedUser.role === 'student' ? searchedUser.indexNumber || searchedUser.idNumber : searchedUser.staffId || searchedUser.idNumber) || 'N/A',
+                          email: searchedUser.email || 'N/A',
+                          assignmentName: selectedMessage.attachmentName || (selectedMessage.text ? `academic_submission_${selectedMessage._id.slice(-6)}.pdf` : 'academic_submission.pdf'),
+                          txHash: selectedMessage.blockchainTxHash,
+                          blockNumber: selectedMessage.blockchainBlock ? String(selectedMessage.blockchainBlock) : undefined,
+                          _creationTime: selectedMessage.createdAt,
+                        }}
+                      />
+                      <label style={{ display: 'block', marginTop: '1rem', marginBottom: '0.5rem', fontWeight: 600 }}>
+                        📜 Formatted ASCII Audit Report (Dispatched directly to user record)
                       </label>
                       <pre className="audit-report-pre">
-                        {generateAuditReportText(searchedUser, selectedMessage)}
+                        {generateDynamicAuditReportText(searchedUser, selectedMessage)}
                       </pre>
                     </div>
 
