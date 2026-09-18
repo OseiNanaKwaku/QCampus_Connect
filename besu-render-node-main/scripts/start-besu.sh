@@ -5,15 +5,14 @@ echo "=============================================="
 echo " QCampus Connect — Besu Self-Initializing Node "
 echo "=============================================="
 
-# 💡 THE CORRECT JAVA METHOD: Pass the caps into JAVA_OPTS. 
-# The Java runtime will read this environment variable automatically on launch!
+# Limit JVM memory usage and disable Vert.x background thread checks to prevent Render thread starvation
 export JAVA_OPTS="-Xms128m -Xmx256m -Dvertx.disablecontextdata=true -Dvertx.threadChecks=false"
 
 echo "Starting Hyperledger Besu..."
 echo "Java constraints enforced: $JAVA_OPTS"
 
-# 💡 THE FIX: Cleanly launch the binary WITHOUT passing $JAVA_OPTS to the Besu CLI array.
-# We also include --Xsnapsync-bft-enabled=true to bypass the 5-peer threshold lock!
+# 💡 THE FIX: We append --Xsnapsync-bft-enabled=true to bypass the 5-peer threshold lock.
+# This forces the single validator node to skip full-sync and mine blocks instantly!
 exec /opt/besu/bin/besu \
   --rpc-http-enabled \
   --rpc-http-api=ETH,NET,WEB3 \
