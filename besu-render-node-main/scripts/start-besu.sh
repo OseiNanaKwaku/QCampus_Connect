@@ -9,6 +9,8 @@ export JAVA_OPTS="-Xms128m -Xmx256m -Dvertx.disablecontextdata=true -Dvertx.thre
 
 echo "Starting Hyperledger Besu..."
 
+# NOTE: /tmp is ephemeral on Render — chain state is intentionally reset on every restart.
+# MessageVerifier is always re-deployed during startup by deploy-if-missing.js.
 rm -rf /tmp/besu-data
 mkdir -p /tmp/besu-data
 
@@ -96,6 +98,16 @@ fi
 echo "Running MessageVerifier self-initialization..."
 
 node /opt/qcampus/deploy-if-missing.js
+
+# Read and export the confirmed contract address written by deploy-if-missing.js.
+ADDRESS_FILE="/opt/qcampus/contract_address.txt"
+if [ -f "$ADDRESS_FILE" ]; then
+  CONFIRMED_CONTRACT=$(cat "$ADDRESS_FILE")
+  export CONTRACT_ADDRESS="$CONFIRMED_CONTRACT"
+  echo "Confirmed MessageVerifier address: $CONFIRMED_CONTRACT"
+else
+  echo "WARNING: contract_address.txt not found — CONTRACT_ADDRESS not exported."
+fi
 
 echo "=============================================="
 echo " Besu + MessageVerifier ready "

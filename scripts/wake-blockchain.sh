@@ -3,7 +3,9 @@
 set -u
 
 RPC_URL="https://qcampus-blockchain-nodelast.onrender.com"
-CONTRACT_ADDRESS="0x42699A7612A82f1d9C36148af9C77354759b210b"
+# Use CONTRACT_ADDRESS env var if set; otherwise fall back to the address produced
+# by deploying MessageVerifier from the genesis validator key at nonce=0.
+CONTRACT_ADDRESS="${CONTRACT_ADDRESS:-0xa50a51c09a5c451C52BB714527E1974b686D8e77}"
 
 echo "=============================================="
 echo " QCampus Connect — Besu Wake-Up"
