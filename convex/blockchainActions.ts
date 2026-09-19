@@ -219,7 +219,9 @@ function isKnownTransactionError(error: any): boolean {
     combined.includes("replacement_underpriced") ||
     combined.includes("transaction with the same hash was already imported") ||
     combined.includes("already in pool") ||
-    combined.includes("hash already exists")
+    combined.includes("hash already exists") ||
+    combined.includes("messagehash already recorded") ||
+    combined.includes("already recorded")
   );
 }
 
@@ -420,6 +422,7 @@ interface RecordMessageResult {
   chainId?: string;
   error?: string;
   stage?: "confirmation" | "transaction" | "unknown";
+  duplicateDetected?: boolean;
 }
 
 /**
@@ -487,9 +490,8 @@ async function executeRecordMessage(args: {
     };
   } catch (error: any) {
     if (isKnownTransactionError(error)) {
-      console.log(`[Relay Engine] Intercepted duplicate signature: Transaction already registered on-chain.`);
-      const fallbackTxHash = "0x" + Math.random().toString(16).slice(2, 66).padStart(64, "e");
-      return { success: true, txHash: fallbackTxHash, stage: "confirmation" };
+      console.log(`[Relay Engine] Duplicate transaction intercepted for message ${args.messageId}: already submitted or mined on-chain.`);
+      return { success: true, duplicateDetected: true, stage: "confirmation" };
     }
     console.warn("⚠️ Blockchain message anchor fell back to safety block:", error.message);
     return {
@@ -547,8 +549,8 @@ export const anchorMessage = internalAction({
       }
 
       // 2. Idempotency check: already anchored in Convex?
-      if (messageInfo.blockchainTxHash) {
-        console.log(`[Relay Engine] Message already anchored (${messageInfo.blockchainTxHash}), skipping duplicate.`);
+      if (messageInfo.blockchainTxHash && messageInfo.blockchainTxHash.startsWith("0x")) {
+        console.log(`[Relay Engine] Message ${args.messageId} already anchored in Convex (${messageInfo.blockchainTxHash}), skipping duplicate.`);
         return { success: true, txHash: messageInfo.blockchainTxHash, alreadyAnchored: true };
       }
 
@@ -557,11 +559,7 @@ export const anchorMessage = internalAction({
         const { contract } = await getBlockchainConnection();
         const existingHash = await contract.verifyHash(args.messageId);
         if (existingHash && existingHash !== ethers.ZeroHash) {
-          console.log(`[Relay Engine] Message ${args.messageId} already recorded on-chain (${existingHash}). Patching Convex.`);
-          await ctx.runMutation(internal.qchat.updateMessageTxHashFromBlockchain, {
-            messageId: args.messageId,
-            txHash: existingHash,
-          });
+          console.log(`[Relay Engine] Message ${args.messageId} already recorded on-chain (content hash: ${existingHash}). Skipping on-chain submission.`);
           return { success: true, alreadyRecordedOnChain: true };
         }
       } catch (checkErr: any) {
@@ -576,13 +574,22 @@ export const anchorMessage = internalAction({
         receiverId: messageInfo.receiverId,
       });
 
-      if (!recordResult.success || !recordResult.txHash) {
+      if (!recordResult.success) {
         console.warn(`[Relay Engine] Blockchain anchor delayed for ${args.messageId}:`, recordResult.error);
         return { success: false, error: recordResult.error };
       }
 
-      // 5. Write confirmed transaction hash back to Convex message row (if real tx hash)
-      if (recordResult.txHash && recordResult.txHash !== "already-recorded") {
+      if (recordResult.duplicateDetected) {
+        console.log(`[Relay Engine] Duplicate submission detected for message ${args.messageId}. Handled idempotently without corrupting Convex state.`);
+        return {
+          success: true,
+          duplicateDetected: true,
+          alreadyRecordedOnChain: true,
+        };
+      }
+
+      // 5. Write confirmed transaction hash back to Convex message row (only if real 0x tx hash)
+      if (recordResult.txHash && recordResult.txHash.startsWith("0x")) {
         try {
           await ctx.runMutation(internal.qchat.updateMessageTxHashFromBlockchain, {
             messageId: args.messageId,
@@ -602,9 +609,8 @@ export const anchorMessage = internalAction({
       };
     } catch (err: any) {
       if (isKnownTransactionError(err)) {
-        console.log(`[Relay Engine] Intercepted duplicate signature: Transaction already registered on-chain.`);
-        const fallbackTxHash = "0x" + Math.random().toString(16).slice(2, 66).padStart(64, "e");
-        return { success: true, txHash: fallbackTxHash, fallback: true, alreadyRecordedOnChain: true };
+        console.log(`[Relay Engine] Duplicate submission detected for message ${args.messageId}: Transaction already registered on-chain.`);
+        return { success: true, duplicateDetected: true, alreadyRecordedOnChain: true };
       }
       console.warn(`[Relay Engine] anchorMessage encountered non-fatal error:`, err?.message || err);
       return { success: false, error: err?.message || String(err) };
@@ -693,11 +699,23 @@ export const relayHash = action({
         return { success: true, txHash, blockNumber, chainId: chainId.toString() };
 
       } else if (args.actionType === "RECORD_MESSAGE") {
+        console.warn(`[Relay Engine] relayHash RECORD_MESSAGE invoked for ${args.identifier}. Canonical background path is internal.blockchainActions.anchorMessage.`);
+
+        // Contract-level idempotency check: check if already recorded on Besu
+        try {
+          const existingHash = await contract.verifyHash(args.identifier);
+          if (existingHash && existingHash !== ethers.ZeroHash) {
+            console.log(`[Relay Engine] Message ${args.identifier} already recorded on-chain (${existingHash}). Skipping duplicate relay.`);
+            return { success: true, alreadyRecordedOnChain: true, duplicateDetected: true };
+          }
+        } catch {
+          // verifyHash reverts if not recorded yet
+        }
+
         const contentHash = computeSHA256Bytes32(args.rawTextPayload || "");
         const senderAddr = getPseudoAddress(args.senderId || "admin");
         const receiverAddr = getPseudoAddress(args.receiverId || "public");
         const txOverrides = getBesuGasOverrides("RECORD_MESSAGE");
-        console.log(`[Relay Engine] relayHash RECORD_MESSAGE for ${args.identifier}`);
 
         const tx = await contract.recordHash(
           args.identifier,
@@ -715,9 +733,8 @@ export const relayHash = action({
       return { success: false, error: `Unsupported action type: ${args.actionType}` };
     } catch (error: any) {
       if (isKnownTransactionError(error)) {
-        console.log(`[Relay Engine] Intercepted duplicate signature: Transaction already registered on-chain.`);
-        const fallbackTxHash = "0x" + Math.random().toString(16).slice(2, 66).padStart(64, "e");
-        return { success: true, txHash: fallbackTxHash, fallback: true };
+        console.log(`[Relay Engine] Duplicate transaction detected in relayHash for ${args.identifier}: already registered on-chain.`);
+        return { success: true, duplicateDetected: true };
       }
       console.error("❌ Blockchain contract exception caught:", error?.message || error);
       return { success: false, error: error?.message || String(error) };
@@ -772,8 +789,8 @@ export const recordProfileHash = action({
         console.log(`[Relay Engine] Safe Intercept: Profile hash duplicate transaction skipped.`);
         return {
           success: true,
-          fallback: true,
-          txHash: "already-recorded",
+          duplicateDetected: true,
+          txHash: null,
           profileHash: null,
         };
       }

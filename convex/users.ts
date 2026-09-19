@@ -31,19 +31,13 @@ export const getMe = query({
   },
 });
 
-// 1. Fetch a user by their Convex document ID with safe normalizeId
+// 1. Fetch a user by their Convex document ID
 export const getById = query({
-  args: { id: v.any() },
+  args: {
+    id: v.id("users"),
+  },
   handler: async (ctx, args) => {
-    // Gracefully handle raw or invalid string checking to prevent type-casting crashes
-    try {
-      if (!args.id || typeof args.id !== "string") return null;
-      const normalizedId = ctx.db.normalizeId("users", args.id);
-      if (!normalizedId) return null;
-      return await ctx.db.get(normalizedId);
-    } catch {
-      return null;
-    }
+    return await ctx.db.get(args.id);
   },
 });
 

@@ -171,6 +171,13 @@ export async function relayHashToBesu(
     role?: string;
   }
 ): Promise<string> {
+  if (actionType === "RECORD_MESSAGE") {
+    console.warn(
+      `[Blockchain Sync] relayHashToBesu for RECORD_MESSAGE is disabled. Message ${identifier} is canonically anchored via Convex background scheduler (internal.blockchainActions.anchorMessage).`
+    );
+    return "";
+  }
+
   try {
     const result: any = await convexClient.action(convexApi.blockchainActions.relayHash, {
       actionType,

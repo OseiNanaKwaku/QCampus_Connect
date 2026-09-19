@@ -115,34 +115,30 @@ export class GatekeeperErrorBoundary extends Component<ErrorBoundaryProps, Error
 }
 
 function App() {
-  const [activeUserId, setActiveUserId] = useState<string | null>(
-    () => localStorage.getItem("qchat_active_user_id")
-  );
-
   const sessionToken = getSessionToken();
   const me = useQuery(api.users.getMe, sessionToken ? { sessionToken } : "skip");
 
   useEffect(() => {
     if (me?._id) {
       localStorage.setItem("qchat_active_user_id", me._id);
-      setActiveUserId(me._id);
     } else if (!sessionToken || me === null) {
       // If sessionToken is missing or confirmed invalid by server, flush stale cache
       localStorage.removeItem("qchat_active_user_id");
       localStorage.removeItem("qchat_session_token");
       sessionStorage.clear();
-      setActiveUserId(null);
     }
   }, [me, sessionToken]);
 
   return (
     <GatekeeperErrorBoundary>
       <BrowserRouter>
-        {/* Background worker – only runs when a user is logged in */}
-        {activeUserId && (
+        {/* Background worker – only runs when an authenticated user is confirmed via session */}
+        {me?._id && (
           <CryptographicLoginGatekeeper
-            currentUserId={activeUserId as Id<"users">}
-            onResetSession={() => setActiveUserId(null)}
+            currentUserId={me._id}
+            onResetSession={() => {
+              clearSessionToken();
+            }}
           />
         )}
 
@@ -168,10 +164,10 @@ export function CryptographicLoginGatekeeper({
   currentUserId,
   onResetSession,
 }: {
-  currentUserId: Id<"users"> | string;
+  currentUserId: Id<"users">;
   onResetSession?: () => void;
 }) {
-  const userProfile = useQuery(api.users.getById, { id: currentUserId as any });
+  const userProfile = useQuery(api.users.getById, { id: currentUserId });
   const updateProfileKeys = useMutation(api.users.updateProfileKeys);
 
   useEffect(() => {
