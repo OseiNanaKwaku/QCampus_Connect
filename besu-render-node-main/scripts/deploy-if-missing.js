@@ -8,10 +8,14 @@ const CONTRACT_ADDRESS =
   process.env.CONTRACT_ADDRESS ||
   "0x42699A7612A82f1d9C36148af9C77354759b210b";
 
-const PRIVATE_KEY = process.env.BESU_DEV_PRIVATE_KEY;
+const PRIVATE_KEY =
+  process.env.BESU_DEV_PRIVATE_KEY ||
+  process.env.SYSTEM_PRIVATE_KEY;
 
 if (!PRIVATE_KEY) {
-  console.error("BESU_DEV_PRIVATE_KEY is not configured.");
+  console.error(
+    "Neither BESU_DEV_PRIVATE_KEY nor SYSTEM_PRIVATE_KEY is configured."
+  );
   process.exit(1);
 }
 
