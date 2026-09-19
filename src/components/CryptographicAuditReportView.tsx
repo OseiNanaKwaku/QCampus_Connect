@@ -193,7 +193,7 @@ export const CryptographicAuditReportView = ({ record }: { record: AuditRecordDa
  Student Name:          ${studentName}                                         
  Index Number:          ${indexNumber}                                              
  Email:                 ${email}                                
- Assignment:            ${assignment}                                          
+//  Assignment:            ${assignment}                                          
  Submission Date:       ${submissionTime}                                      
  Verification Request:  ${verificationDate}                                      
                                                                                    

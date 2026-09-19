@@ -540,7 +540,7 @@ const MessagesList = () => {
       }
 
       // 3. Send Ciphertext and IV to Convex backend
-      console.groupCollapsed(`📨 [Message] Sending hash message on the blockchain`);
+      console.groupCollapsed(`Message Sent and recorded on the blockchain`);
       console.log(`   🏠 Room ID: ${activeRoomId}`);
       console.log(`   🔐 Encrypted: ${isEncrypted}`);
       console.log(`⛓️ Blockchain anchor: scheduled by Convex backend`);
