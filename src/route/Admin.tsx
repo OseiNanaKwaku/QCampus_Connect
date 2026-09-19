@@ -405,7 +405,7 @@ const Admin = () => {
             <div className="verification-workspace">
               {/* Search Card */}
               <section className="verification-search-card">
-                <h2>🔍 Search User Submission Verification</h2>
+                <h2>🔍 Search User To Confirm Transcations</h2>
                 <p>
                   Lookup any student or lecturer by their real-world identifier
                   (Email, Index Number, or Staff ID) to audit blockchain proof
