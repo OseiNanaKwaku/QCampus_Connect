@@ -139,6 +139,13 @@ const Login = () => {
       } else {
         user = await loginUser({ email, password, role });
       }
+      console.groupCollapsed(`🔑 [Login] Authentication successful`);
+      console.log(`✅ Authentication completed`);
+      console.log(`   👤 User ID: ${user._id}`);
+      console.log(`   👤 Role: ${role}`);
+      console.log(`ℹ️ Login is an authentication/session event; no blockchain transaction is created by this code.`);
+      console.groupEnd();
+
       saveSessionToken(user.sessionToken);
       localStorage.setItem("qchat_active_user_id", user._id);
       navigate('/messages');

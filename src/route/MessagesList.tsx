@@ -540,6 +540,11 @@ const MessagesList = () => {
       }
 
       // 3. Send Ciphertext and IV to Convex backend
+      console.groupCollapsed(`📨 [Message] Sending message`);
+      console.log(`   🏠 Room ID: ${activeRoomId}`);
+      console.log(`   🔐 Encrypted: ${isEncrypted}`);
+      console.log(`⛓️ Blockchain anchor: scheduled by Convex backend`);
+      
       const result = await sendMessage({
         sessionToken,
         roomId: activeRoomId,
@@ -548,6 +553,11 @@ const MessagesList = () => {
         isEncrypted,
         ...attachmentUploadParams,
       });
+
+      console.log(`✅ [Message] Message stored in Convex`);
+      console.log(`   🆔 Message ID: ${result.messageId}`);
+      console.log(`⛓️ [Blockchain] Message anchor is running asynchronously on Hyperledger Besu.`);
+      console.groupEnd();
 
       // Cache decrypted text locally for smooth instant UI response
       if (newMessage.trim()) {

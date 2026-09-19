@@ -176,8 +176,11 @@ const Admin = () => {
           status: 'approved',
         });
 
-        console.log(`✅ [Admin] User approved in Convex DB. User ID: ${result?.userId || selectedUser.userId}`);
-        console.log(`⛓️  [Blockchain] Sending approval record to Hyperledger Besu...`);
+        console.groupCollapsed(`👤 [Approval] User approval`);
+        console.log(`✅ User approved in Convex DB`);
+        console.log(`   👤 User ID: ${result?.userId || selectedUser.userId}`);
+        console.log(`   👤 User: ${selectedUser.fullName}`);
+        console.log(`⛓️ Submitting approval record to Hyperledger Besu...`);
 
         // Fire-and-forget: anchor approval to Besu blockchain
         approveUserOnBlockchain({
@@ -189,14 +192,18 @@ const Admin = () => {
             if (bcResult?.success) {
               console.log(`✅ [Blockchain] Approval anchored on Besu!`);
               console.log(`   🔗 Tx Hash: ${bcResult.txHash}`);
-              console.log(`   👤 Approved: ${selectedUser.fullName} (${selectedUser.email})`);
+              console.log(`   👤 Approved: ${selectedUser.fullName}`);
+              console.log(`📦 [Blockchain] Approval transaction confirmed.`);
+              console.groupEnd();
             } else {
               console.warn(`⚠️  [Blockchain] Besu approval notice (non-fatal): ${bcResult?.error}`);
-              console.info(`   ℹ️  User is approved in Convex DB. Blockchain sync can retry.`);
+              console.info(`   ℹ️ User is approved in Convex DB. Blockchain sync can retry.`);
+              console.groupEnd();
             }
           })
           .catch((err: any) => {
             console.error(`❌ [Blockchain] Besu approval failed (non-fatal):`, err?.message || err);
+            console.groupEnd();
             console.info(`   ℹ️  Approval is stored in Convex. Blockchain will sync when Besu is reachable.`);
           });
 

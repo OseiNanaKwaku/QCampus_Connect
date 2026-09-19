@@ -276,11 +276,13 @@ const Register = () => {
       // 5. Asynchronously anchor user registration to Besu blockchain via Convex Action.
       //    This runs server-side (no CORS), so browser CORS restrictions don't apply.
       //    We log clearly to the console for easy identification of blockchain steps.
-      console.log(`🔐 [Registration] ✅ User created in Convex DB`);
-      console.log(`   👤 User ID:   ${user._id}`);
-      console.log(`   📧 Email:     ${email}`);
-      console.log(`   🏛️  Role:      ${role}`);
-      console.log(`⛓️  [Blockchain] Background approval scheduled atomically on Hyperledger Besu.`);
+      console.groupCollapsed(`🔐 [Registration] Registration completed`);
+      console.log(`✅ Convex user created`);
+      console.log(`   👤 User ID: ${user._id}`);
+      console.log(`   🏛️ Role: ${role}`);
+      console.log(`⛓️ Blockchain approval: scheduled by Convex backend`);
+      console.log(`ℹ️ The blockchain transaction runs asynchronously on Hyperledger Besu.`);
+      console.groupEnd();
 
       saveSessionToken(user.sessionToken);
       localStorage.setItem("qchat_active_user_id", user._id);

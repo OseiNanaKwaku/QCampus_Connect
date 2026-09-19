@@ -151,13 +151,16 @@ const VerifyProfile = () => {
         department: department.trim(),
       });
 
-      console.log(`📋 [Profile Submission] ✅ Verification request stored in Convex`);
+      console.groupCollapsed(`📋 [Verification] Verification submitted`);
+      console.log(`✅ Verification request stored in Convex`);
       console.log(`   👤 User ID: ${currentUser._id}`);
       console.log(`   🏫 School: ${institution}`);
       console.log(`   🆔 ID Number: ${idNumber.toUpperCase()}`);
+      console.groupEnd();
 
       // STEP 2: Anchor profile hash to Besu blockchain (fire-and-forget, non-blocking)
-      console.log(`⛓️  [Blockchain] Anchoring profile hash to Hyperledger Besu...`);
+      console.groupCollapsed(`⛓️ [Verification] Blockchain anchor`);
+      console.log(`🚀 Submitting profile hash to Hyperledger Besu...`);
       if (result?.profileHashPayload) {
         recordProfileHash({
           userId: currentUser._id,
@@ -171,6 +174,8 @@ const VerifyProfile = () => {
               console.log(`✅ [Blockchain] Profile hash anchored to Besu!`);
               console.log(`   🔗 Tx Hash: ${bcResult.txHash}`);
               console.log(`   🔑 Profile Hash: ${bcResult.profileHash}`);
+              console.log(`   📦 Profile hash transaction confirmed by blockchain action.`);
+              console.groupEnd();
               // Store the txHash back into the verification request in Convex
               storeProfileHashTx({
                 sessionToken,
@@ -179,11 +184,13 @@ const VerifyProfile = () => {
               }).catch((e: any) => console.warn('[Convex] storeProfileHashTx failed:', e?.message));
             } else {
               console.warn(`⚠️  [Blockchain] Besu notice (non-fatal): ${bcResult?.error}`);
-              console.info(`   ℹ️  Profile is stored in Convex. Blockchain anchor will retry later.`);
+              console.info(`   ℹ️ Profile is stored in Convex. Blockchain anchor will retry later.`);
+              console.groupEnd();
             }
           })
           .catch((err: any) => {
             console.error(`❌ [Blockchain] Profile hash anchor failed (non-fatal):`, err?.message || err);
+            console.groupEnd();
             console.info(`   ℹ️  Verification request is stored in Convex DB and awaiting admin review.`);
           });
       }
